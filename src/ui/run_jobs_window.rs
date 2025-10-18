@@ -1,0 +1,376 @@
+use crate::api::client::GitHubClient;
+use crate::api::models::{Job, Repo, WorkflowRun};
+use gtk4::prelude::*;
+use gtk4::{self as gtk, glib};
+use libadwaita as adw;
+use libadwaita::prelude::*;
+use std::sync::Arc;
+use parking_lot::Mutex;
+use tracing::{error, info};
+
+pub struct RunJobsWindow {
+    window: adw::Window,
+    repo: Repo,
+    run: WorkflowRun,
+    client: Arc<Mutex<GitHubClient>>,
+    jobs: Arc<Mutex<Vec<Job>>>,
+}
+
+impl RunJobsWindow {
+    pub fn new(
+        parent: &impl IsA<gtk::Window>,
+        repo: Repo,
+        run: WorkflowRun,
+        client: Arc<Mutex<GitHubClient>>,
+    ) -> Self {
+        let title = run
+            .display_title
+            .as_deref()
+            .or(run.name.as_deref())
+            .unwrap_or("Run");
+
+        let window = adw::Window::builder()
+            .title(format!("{} - Jobs", title))
+            .modal(false)
+            .default_width(900)
+            .default_height(700)
+            .transient_for(parent)
+            .build();
+
+        let jobs = Arc::new(Mutex::new(Vec::new()));
+
+        let jobs_window = Self {
+            window: window.clone(),
+            repo: repo.clone(),
+            run: run.clone(),
+            client: client.clone(),
+            jobs: jobs.clone(),
+        };
+
+        jobs_window.build_ui();
+        jobs_window.load_jobs();
+        jobs_window
+    }
+
+    fn build_ui(&self) {
+        let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+        // Header bar
+        let header = adw::HeaderBar::new();
+
+        // Refresh button
+        let refresh_button = gtk::Button::from_icon_name("view-refresh-symbolic");
+        refresh_button.set_tooltip_text(Some("Refresh jobs"));
+        header.pack_start(&refresh_button);
+
+        // Cancel run button
+        let cancel_button = gtk::Button::from_icon_name("process-stop-symbolic");
+        cancel_button.set_tooltip_text(Some("Cancel run"));
+        cancel_button.add_css_class("destructive-action");
+
+        // Only show cancel if run is in progress
+        if self.run.status.as_deref() == Some("in_progress")
+            || self.run.status.as_deref() == Some("queued")
+        {
+            header.pack_end(&cancel_button);
+        }
+
+        main_box.append(&header);
+
+        // Run info
+        let info_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        info_box.set_margin_top(12);
+        info_box.set_margin_bottom(12);
+        info_box.set_margin_start(12);
+        info_box.set_margin_end(12);
+
+        let title = self
+            .run
+            .display_title
+            .as_deref()
+            .or(self.run.name.as_deref())
+            .unwrap_or("Workflow Run");
+        let run_label = gtk::Label::new(Some(title));
+        run_label.add_css_class("title-2");
+        run_label.set_halign(gtk::Align::Start);
+        info_box.append(&run_label);
+
+        let repo_label = gtk::Label::new(Some(&self.repo.full_name));
+        repo_label.add_css_class("dim-label");
+        repo_label.set_halign(gtk::Align::Start);
+        info_box.append(&repo_label);
+
+        main_box.append(&info_box);
+
+        // Separator
+        let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+        main_box.append(&separator);
+
+        // Jobs list
+        let scrolled = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .build();
+
+        let list_box = gtk::ListBox::new();
+        list_box.add_css_class("boxed-list");
+        list_box.set_margin_top(12);
+        list_box.set_margin_bottom(12);
+        list_box.set_margin_start(12);
+        list_box.set_margin_end(12);
+
+        scrolled.set_child(Some(&list_box));
+
+        let clamp = adw::Clamp::new();
+        clamp.set_maximum_size(900);
+        clamp.set_child(Some(&scrolled));
+
+        main_box.append(&clamp);
+
+        self.window.set_content(Some(&main_box));
+
+        // Connect signals
+        self.connect_refresh_button(&refresh_button, &list_box);
+        self.connect_cancel_button(&cancel_button);
+        self.connect_job_selected(&list_box);
+    }
+
+    fn load_jobs(&self) {
+        let client = self.client.clone();
+        let jobs = self.jobs.clone();
+        let owner = self.repo.owner.login.clone();
+        let repo_name = self.repo.name.clone();
+        let run_id = self.run.id;
+        let window = self.window.clone();
+
+        glib::MainContext::default().spawn_local(async move {
+            let client_lock = client.lock();
+
+            match client_lock.list_jobs(&owner, &repo_name, run_id).await {
+                Ok(jobs_list) => {
+                    info!("Loaded {} jobs", jobs_list.len());
+                    let jobs_clone = jobs_list.clone();
+                    *jobs.lock() = jobs_list;
+
+                    // Update UI
+                    if let Some(content) = window.content() {
+                        if let Ok(main_box) = content.downcast::<gtk::Box>() {
+                            find_and_update_jobs_list(&main_box, &jobs_clone);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to load jobs: {}", e);
+                }
+            }
+        });
+    }
+
+    fn connect_refresh_button(&self, button: &gtk::Button, list_box: &gtk::ListBox) {
+        let client = self.client.clone();
+        let jobs = self.jobs.clone();
+        let owner = self.repo.owner.login.clone();
+        let repo_name = self.repo.name.clone();
+        let run_id = self.run.id;
+        let list_box = list_box.clone();
+
+        button.connect_clicked(move |_| {
+            let client = client.clone();
+            let jobs = jobs.clone();
+            let owner = owner.clone();
+            let repo_name = repo_name.clone();
+            let list = list_box.clone();
+
+            glib::MainContext::default().spawn_local(async move {
+                let client_lock = client.lock();
+
+                match client_lock.list_jobs(&owner, &repo_name, run_id).await {
+                    Ok(jobs_list) => {
+                        info!("Refreshed {} jobs", jobs_list.len());
+                        let jobs_clone = jobs_list.clone();
+                        *jobs.lock() = jobs_list;
+                        update_jobs_list(&list, &jobs_clone);
+                    }
+                    Err(e) => {
+                        error!("Failed to refresh jobs: {}", e);
+                    }
+                }
+            });
+        });
+    }
+
+    fn connect_cancel_button(&self, button: &gtk::Button) {
+        let client = self.client.clone();
+        let owner = self.repo.owner.login.clone();
+        let repo_name = self.repo.name.clone();
+        let run_id = self.run.id;
+        let window = self.window.clone();
+
+        button.connect_clicked(move |btn| {
+            let client = client.clone();
+            let owner = owner.clone();
+            let repo_name = repo_name.clone();
+            let window = window.clone();
+
+            btn.set_sensitive(false);
+
+            glib::MainContext::default().spawn_local(async move {
+                let client_lock = client.lock();
+
+                match client_lock.cancel_run(&owner, &repo_name, run_id).await {
+                    Ok(_) => {
+                        info!("Run cancelled successfully");
+
+                        let dialog = gtk::MessageDialog::new(
+                            Some(&window),
+                            gtk::DialogFlags::MODAL,
+                            gtk::MessageType::Info,
+                            gtk::ButtonsType::Ok,
+                            "Run cancellation requested successfully.",
+                        );
+                        dialog.connect_response(|dialog, _| {
+                            dialog.close();
+                        });
+                        dialog.present();
+                    }
+                    Err(e) => {
+                        error!("Failed to cancel run: {}", e);
+
+                        let dialog = gtk::MessageDialog::new(
+                            Some(&window),
+                            gtk::DialogFlags::MODAL,
+                            gtk::MessageType::Error,
+                            gtk::ButtonsType::Ok,
+                            format!("Failed to cancel run: {}", e),
+                        );
+                        dialog.connect_response(|dialog, _| {
+                            dialog.close();
+                        });
+                        dialog.present();
+                    }
+                }
+            });
+        });
+    }
+
+    fn connect_job_selected(&self, list_box: &gtk::ListBox) {
+        let window = self.window.clone();
+        let client = self.client.clone();
+        let jobs = self.jobs.clone();
+        let repo = self.repo.clone();
+
+        list_box.connect_row_activated(move |_, row| {
+            let index = row.index() as usize;
+            let jobs = jobs.clone();
+            let window = window.clone();
+            let client = client.clone();
+            let repo = repo.clone();
+
+            glib::MainContext::default().spawn_local(async move {
+                let jobs_lock = jobs.lock();
+                if let Some(job) = jobs_lock.get(index) {
+                    let logs_window = super::job_logs_window::JobLogsWindow::new(
+                        &window,
+                        repo.clone(),
+                        job.clone(),
+                        client.clone(),
+                    );
+                    logs_window.present();
+                }
+            });
+        });
+    }
+
+    pub fn present(&self) {
+        self.window.present();
+    }
+}
+
+fn update_jobs_list(list_box: &gtk::ListBox, jobs: &[Job]) {
+    // Clear existing items
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+
+    // Add new items
+    for job in jobs {
+        let row = create_job_row(job);
+        list_box.append(&row);
+    }
+}
+
+fn find_and_update_jobs_list(container: &gtk::Box, jobs: &[Job]) {
+    let mut child = container.first_child();
+    while let Some(widget) = child {
+        if let Ok(clamp) = widget.clone().downcast::<adw::Clamp>() {
+            if let Some(scrolled) = clamp.child() {
+                if let Ok(sw) = scrolled.downcast::<gtk::ScrolledWindow>() {
+                    if let Some(list_box) = sw.child() {
+                        if let Ok(lb) = list_box.downcast::<gtk::ListBox>() {
+                            update_jobs_list(&lb, jobs);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        child = widget.next_sibling();
+    }
+}
+
+fn create_job_row(job: &Job) -> gtk::ListBoxRow {
+    let row = gtk::ListBoxRow::new();
+
+    let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    hbox.set_margin_top(12);
+    hbox.set_margin_bottom(12);
+    hbox.set_margin_start(12);
+    hbox.set_margin_end(12);
+
+    // Status icon
+    let (icon_name, css_class) = match (job.status.as_deref(), job.conclusion.as_deref()) {
+        (Some("completed"), Some("success")) => ("emblem-ok-symbolic", "success"),
+        (Some("completed"), Some("failure")) => ("dialog-error-symbolic", "error"),
+        (Some("completed"), Some("cancelled")) => ("process-stop-symbolic", "warning"),
+        (Some("in_progress"), _) => ("media-playback-start-symbolic", "accent"),
+        (Some("queued"), _) => ("document-open-recent-symbolic", ""),
+        _ => ("help-about-symbolic", ""),
+    };
+
+    let icon = gtk::Image::from_icon_name(icon_name);
+    icon.set_pixel_size(24);
+    if !css_class.is_empty() {
+        icon.add_css_class(css_class);
+    }
+    hbox.append(&icon);
+
+    // Job info
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
+
+    let name = job.name.as_deref().unwrap_or("Job");
+    let name_label = gtk::Label::new(Some(name));
+    name_label.set_halign(gtk::Align::Start);
+    name_label.add_css_class("heading");
+    vbox.append(&name_label);
+
+    let mut details = Vec::new();
+    if let Some(status) = &job.status {
+        details.push(format!("Status: {}", status));
+    }
+    if let Some(conclusion) = &job.conclusion {
+        details.push(format!("Conclusion: {}", conclusion));
+    }
+
+    if !details.is_empty() {
+        let details_label = gtk::Label::new(Some(&details.join(" • ")));
+        details_label.set_halign(gtk::Align::Start);
+        details_label.add_css_class("dim-label");
+        details_label.add_css_class("caption");
+        vbox.append(&details_label);
+    }
+
+    hbox.append(&vbox);
+
+    row.set_child(Some(&hbox));
+    row
+}
