@@ -19,6 +19,48 @@ This repository is a native GTK4/libadwaita desktop client for GitHub Actions wr
   - UI updates: schedule UI changes on GLib using `glib::MainContext::default().spawn_local(...)` or `glib::idle_add_local_once(...)`. Follow the code in `src/ui/main_window.rs` as the canonical pattern.
   - Shared state: use `Arc<Mutex<T>>` (parking_lot::Mutex) for data shared between UI and background tasks. UI-specific ownership often uses `Rc<RefCell<...>>` for widgets/panes.
 
+## Tokio + GTK runtime best practices (specific)
+
+This project mixes a Tokio runtime for async HTTP work with GTK's GLib main loop. Follow these rules to avoid subtle deadlocks, panics, and non-Send/`'static` issues:
+
+- Create a single, long-lived Tokio runtime (multi-threaded) and expose its `Handle` globally (the repo already uses `OnceLock<Handle>` in `src/main.rs`). Avoid creating multiple runtimes.
+  - Example startup: `Builder::new_multi_thread().enable_all().worker_threads(num_cpus::get()).build()?` and store the handle.
+
+- Never call `Runtime::block_on` or otherwise block the GLib main thread. Blocking the main thread freezes the UI and can deadlock Tokio resource drivers. If you need to run synchronous work, use `spawn_blocking` on Tokio or schedule it on GLib's thread pool.
+
+- Run network and heavy async work on Tokio: from the GTK/main thread, dispatch work with the runtime handle and do NOT touch GTK objects inside those tasks.
+  - Pattern:
+
+```rust
+let handle = crate::runtime_handle().clone();
+handle.spawn(async move {
+    let repos = client.list_repos().await; // HTTP on tokio
+    // Marshal results back to the GLib main loop for UI updates
+    glib::MainContext::default().spawn_local(async move {
+        // safe to touch GTK widgets here
+    });
+});
+```
+
+- Avoid awaiting Tokio JoinHandles inside GLib async contexts. Instead either:
+  - Await inside Tokio tasks and then call `spawn_local` to update UI; or
+  - Use channels (oneshot/mpsc) to send results back and handle them on the GLib side.
+
+- `tokio::spawn` requires futures to be `Send + 'static`. Any non-Send state (e.g., `Rc` or GTK objects) must not be moved into Tokio tasks. Use `Arc` for shared state or keep GTK references only on the GLib side.
+
+- For non-Send async computations that must run on the main loop, use `glib::MainContext::default().spawn_local(...)` or `glib::source::spawn_local` — these run on GLib's executor and can safely use non-Send GTK types.
+
+- For blocking CPU work, use `tokio::task::spawn_blocking` so the async runtime's IO threads aren't blocked.
+
+- If you ever need to run tokio-owned code on the current thread (rare), use `Handle::enter()` carefully and only from non-GLib threads; avoid entering a Tokio runtime on the GLib main thread.
+
+- Common pitfalls to watch for:
+  - Holding GTK objects or `Rc<...>` across `.await` in a Tokio-spawned task (will fail `Send`/lifetime checks).
+  - Calling `Runtime::block_on` on the main thread.
+  - Creating short-lived runtimes repeatedly (costly and may leak OS threads if misused).
+
+These specifics are drawn from Tokio and gtk-rs patterns — follow them when adding async logic or refactoring existing code.
+
 - Authentication & token handling
   - Token lifecycle lives in `TokenStorage`. `TokenStorage::new()` performs a keyring test and may return `KeyringUnavailable`. Handle that explicitly — the UI currently falls back to showing the auth window.
   - The OAuth device flow UI is in `src/ui/auth_window.rs` and the flow implementation in `src/auth/device.rs`.
