@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::api::client::GitHubClient;
 use crate::api::models::{Repo, Workflow, WorkflowRun};
 use crate::api::GitHubError;

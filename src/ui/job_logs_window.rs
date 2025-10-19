@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::api::models::{Job, Repo};
 use crate::api::{GitHubClient, GitHubError};
 use crate::ui::utils::MainContextChannelExt;

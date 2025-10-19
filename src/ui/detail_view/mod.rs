@@ -10,7 +10,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
+mod helpers;
+use helpers::create_workflow_expander_row;
+
 pub struct RepoDetailPane {
+    #[allow(dead_code)]
     parent: adw::ApplicationWindow,
     repo: Repo,
     client: Arc<Mutex<GitHubClient>>,
@@ -250,12 +254,17 @@ impl RepoDetailPane {
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
 
+        // Clone for spawn closure
+        let client_for_spawn = client.clone();
+        let owner_for_spawn = owner.clone();
+        let repo_name_for_spawn = repo_name.clone();
+
         receiver.attach(None, move |result| {
             match result {
                 Ok(wf_list) => {
                     info!("Loaded {} workflows", wf_list.len());
                     *workflows.lock() = wf_list.clone();
-                    update_workflows_list(&list_box, &wf_list);
+                    update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name);
                 }
                 Err(e) => {
                     error!("Failed to load workflows: {}", e);
@@ -266,8 +275,9 @@ impl RepoDetailPane {
         });
 
         crate::runtime_handle().spawn(async move {
-            let client_clone = client.lock().clone();
-            let result = fetch_workflows(&client_clone, &owner, &repo_name).await;
+            let client_clone = client_for_spawn.lock().clone();
+            let result =
+                fetch_workflows(&client_clone, &owner_for_spawn, &repo_name_for_spawn).await;
             let _ = sender.send(result);
         });
     }
@@ -282,6 +292,11 @@ impl RepoDetailPane {
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
 
+        // Clone for spawn
+        let client_for_spawn = client.clone();
+        let owner_for_spawn = owner.clone();
+        let repo_name_for_spawn = repo_name.clone();
+
         receiver.attach(None, move |result| {
             match result {
                 Ok(wf_list) => {
@@ -290,7 +305,7 @@ impl RepoDetailPane {
                     if workflows_differ(&current, &wf_list) {
                         info!("Silent refresh detected workflow changes");
                         *workflows.lock() = wf_list.clone();
-                        update_workflows_list(&list_box, &wf_list);
+                        update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name);
                     }
                 }
                 Err(e) => {
@@ -306,8 +321,9 @@ impl RepoDetailPane {
         });
 
         crate::runtime_handle().spawn(async move {
-            let client_clone = client.lock().clone();
-            let result = fetch_workflows(&client_clone, &owner, &repo_name).await;
+            let client_clone = client_for_spawn.lock().clone();
+            let result =
+                fetch_workflows(&client_clone, &owner_for_spawn, &repo_name_for_spawn).await;
             let _ = sender.send(result);
         });
     }
@@ -330,13 +346,22 @@ impl RepoDetailPane {
                 .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
             let list_box_for_ui = list_box.clone();
             let workflows_for_ui = workflows.clone();
+            let client_for_ui = client.clone();
+            let owner_for_ui = owner.clone();
+            let repo_name_for_ui = repo_name.clone();
 
             receiver.attach(None, move |result| {
                 match result {
                     Ok(wf_list) => {
                         info!("Refreshed {} workflows", wf_list.len());
                         *workflows_for_ui.lock() = wf_list.clone();
-                        update_workflows_list(&list_box_for_ui, &wf_list);
+                        update_workflows_list(
+                            &list_box_for_ui,
+                            &wf_list,
+                            &client_for_ui,
+                            &owner_for_ui,
+                            &repo_name_for_ui,
+                        );
                     }
                     Err(e) => {
                         error!("Failed to refresh workflows: {}", e);
@@ -355,29 +380,8 @@ impl RepoDetailPane {
     }
 
     fn connect_workflow_selected(&self) {
-        let parent = self.parent.clone();
-        let client = self.client.clone();
-        let workflows = self.workflows.clone();
-        let repo = self.repo.clone();
-        let list_box = self.list_box.clone();
-
-        list_box.connect_row_activated(move |_, row| {
-            let index = row.index() as usize;
-            let workflow = {
-                let workflows_lock = workflows.lock();
-                workflows_lock.get(index).cloned()
-            };
-
-            if let Some(workflow) = workflow {
-                let runs_window = super::workflow_runs_window::WorkflowRunsWindow::new(
-                    &parent,
-                    repo.clone(),
-                    workflow,
-                    client.clone(),
-                );
-                runs_window.present();
-            }
-        });
+        // Workflows are now expanded in-place, no need to open a window
+        // The row activation will be handled by the expander widget
     }
 }
 
@@ -389,7 +393,13 @@ async fn fetch_workflows(
     client.list_workflows(owner, repo).await
 }
 
-fn update_workflows_list(list_box: &gtk::ListBox, workflows: &[Workflow]) {
+fn update_workflows_list(
+    list_box: &gtk::ListBox,
+    workflows: &[Workflow],
+    client: &Arc<Mutex<GitHubClient>>,
+    owner: &str,
+    repo: &str,
+) {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
@@ -412,41 +422,9 @@ fn update_workflows_list(list_box: &gtk::ListBox, workflows: &[Workflow]) {
     }
 
     for workflow in workflows {
-        let row = create_workflow_row(workflow);
-        list_box.append(&row);
+        let expander_row = create_workflow_expander_row(workflow, client, owner, repo);
+        list_box.append(&expander_row);
     }
-}
-
-fn create_workflow_row(workflow: &Workflow) -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
-
-    let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    hbox.set_margin_top(12);
-    hbox.set_margin_bottom(12);
-    hbox.set_margin_start(12);
-    hbox.set_margin_end(12);
-
-    let icon = gtk::Image::from_icon_name("media-playback-start-symbolic");
-    icon.set_pixel_size(24);
-    hbox.append(&icon);
-
-    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
-
-    let name_label = gtk::Label::new(Some(&workflow.name));
-    name_label.set_halign(gtk::Align::Start);
-    name_label.add_css_class("heading");
-    vbox.append(&name_label);
-
-    let path_label = gtk::Label::new(Some(&workflow.path));
-    path_label.set_halign(gtk::Align::Start);
-    path_label.add_css_class("dim-label");
-    path_label.add_css_class("caption");
-    vbox.append(&path_label);
-
-    hbox.append(&vbox);
-
-    row.set_child(Some(&hbox));
-    row
 }
 
 fn update_detail_favorite_button(button: &gtk::ToggleButton, is_active: bool) {
