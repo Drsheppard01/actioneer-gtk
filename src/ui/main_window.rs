@@ -202,6 +202,12 @@ impl MainWindow {
         sidebar_box.append(&search_entry);
         sidebar_box.append(&scrolled);
 
+        let sidebar_clamp = adw::ClampScrollable::new();
+        sidebar_clamp.set_maximum_size(420);
+        sidebar_clamp.set_hexpand(false);
+        // Keep the sidebar width consistent once content loads so the detail pane has room.
+        sidebar_clamp.set_child(Some(&sidebar_box));
+
         let detail_status_page = self.detail_status_page.clone();
         detail_status_page.set_vexpand(true);
         detail_status_page.set_hexpand(true);
@@ -219,11 +225,15 @@ impl MainWindow {
         let split_pane = gtk::Paned::builder()
             .orientation(gtk::Orientation::Horizontal)
             .wide_handle(true)
-            .start_child(&sidebar_box)
+            .start_child(&sidebar_clamp)
             .end_child(&detail_stack)
             .shrink_start_child(false)
             .shrink_end_child(false)
             .build();
+        // Keep the sidebar at its natural width and let the detail pane use remaining space.
+        split_pane.set_resize_start_child(false);
+        split_pane.set_resize_end_child(true);
+        split_pane.set_position(420);
 
         main_box.append(&split_pane);
 
