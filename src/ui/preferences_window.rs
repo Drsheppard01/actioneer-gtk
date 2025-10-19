@@ -28,19 +28,16 @@ impl PreferencesWindow {
 
         let refresh_group = adw::PreferencesGroup::builder().title("Refresh").build();
 
-        let refresh_row = adw::ActionRow::builder()
-            .title("Auto Refresh Interval")
-            .subtitle("Minutes between automatic refreshes (0 disables)")
+        // Create string list for combo row options
+        let string_list =
+            gtk::StringList::new(&["2 seconds", "5 seconds", "10 seconds", "30 seconds"]);
+
+        let refresh_row = adw::ComboRow::builder()
+            .title("Auto-refresh interval")
+            .subtitle("How often to check for workflow run updates")
+            .model(&string_list)
             .build();
 
-        let refresh_spin = gtk::SpinButton::with_range(0.0, 120.0, 1.0);
-        refresh_spin.set_width_chars(4);
-        refresh_spin.set_hexpand(false);
-        refresh_spin.set_vexpand(false);
-        refresh_spin.set_halign(gtk::Align::End);
-        refresh_spin.set_valign(gtk::Align::Center);
-        refresh_row.add_suffix(&refresh_spin);
-        refresh_row.set_activatable_widget(Some(&refresh_spin));
         refresh_group.add(&refresh_row);
 
         let notifications_group = adw::PreferencesGroup::builder()
@@ -78,7 +75,7 @@ impl PreferencesWindow {
         window.add(&general_page);
 
         let manager_clone = manager.clone();
-        let spin_clone = refresh_spin.clone();
+        let combo_clone = refresh_row.clone();
         let notify_clone = notify_switch.clone();
         let sounds_clone = sounds_switch.clone();
         let (sender, receiver) =
@@ -90,21 +87,34 @@ impl PreferencesWindow {
         });
 
         receiver.attach(None, move |prefs| {
-            spin_clone.set_value((prefs.refresh_interval as f64) / 60.0);
+            // Map interval to combo row index
+            let index = match prefs.refresh_interval {
+                2 => 0,
+                5 => 1,
+                10 => 2,
+                30 => 3,
+                _ => 1, // Default to 5 seconds
+            };
+            combo_clone.set_selected(index);
             notify_clone.set_active(prefs.enable_notifications);
             sounds_clone.set_active(prefs.enable_sounds);
             glib::ControlFlow::Break
         });
 
-        let manager_for_spin = manager.clone();
-        refresh_spin.connect_value_changed(move |spin| {
-            let minutes = spin.value().max(0.0);
-            let manager = manager_for_spin.clone();
+        let manager_for_combo = manager.clone();
+        refresh_row.connect_selected_notify(move |combo| {
+            let selected = combo.selected();
+            // Map index to interval in seconds
+            let interval = match selected {
+                0 => 2,
+                1 => 5,
+                2 => 10,
+                3 => 30,
+                _ => 5, // Default fallback
+            };
+            let manager = manager_for_combo.clone();
             runtime_handle().spawn(async move {
-                if let Err(err) = manager
-                    .set_refresh_interval((minutes.round() as u64) * 60)
-                    .await
-                {
+                if let Err(err) = manager.set_refresh_interval(interval).await {
                     warn!("Failed to save refresh interval: {}", err);
                 }
             });

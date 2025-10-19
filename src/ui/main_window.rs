@@ -20,7 +20,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 // Import refactored modules
@@ -37,6 +37,7 @@ pub struct MainWindow {
     favorites_manager: Option<Arc<FavoritesManager>>,
     favorites: Arc<Mutex<HashSet<i64>>>,
     actions_states: Arc<Mutex<HashMap<i64, RepoActionsState>>>,
+    actions_checked_at: Arc<Mutex<HashMap<i64, Instant>>>,
     workflow_counts: Arc<Mutex<HashMap<i64, WorkflowStatusCounts>>>,
     preferences_manager: Option<Arc<PreferencesManager>>,
     selected_repo_id: Arc<Mutex<Option<i64>>>,
@@ -44,9 +45,10 @@ pub struct MainWindow {
     detail_status_page: adw::StatusPage,
     detail_stack: gtk::Stack,
     active_detail: Rc<RefCell<Option<RepoDetailPane>>>,
-    auto_refresh_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    current_refresh_interval: Arc<Mutex<u64>>,
+    background_refresh_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
+
+const ACTIONS_STATUS_TTL: Duration = Duration::from_secs(300);
 
 impl MainWindow {
     pub fn new(app: &adw::Application) -> Self {
@@ -107,11 +109,11 @@ impl MainWindow {
 
         let favorites = Arc::new(Mutex::new(HashSet::new()));
         let actions_states = Arc::new(Mutex::new(HashMap::new()));
+        let actions_checked_at = Arc::new(Mutex::new(HashMap::new()));
         let workflow_counts = Arc::new(Mutex::new(HashMap::new()));
         let selected_repo_id = Arc::new(Mutex::new(None));
         let rate_limit_info = Arc::new(Mutex::new(None));
-        let auto_refresh_task = Arc::new(Mutex::new(None));
-        let current_refresh_interval = Arc::new(Mutex::new(0));
+        let background_refresh_task = Arc::new(Mutex::new(None));
 
         let main_window = Self {
             window: window.clone(),
@@ -123,6 +125,7 @@ impl MainWindow {
             favorites_manager: favorites_manager.clone(),
             favorites: favorites.clone(),
             actions_states: actions_states.clone(),
+            actions_checked_at: actions_checked_at.clone(),
             workflow_counts: workflow_counts.clone(),
             preferences_manager: preferences_manager.clone(),
             selected_repo_id: selected_repo_id.clone(),
@@ -130,14 +133,12 @@ impl MainWindow {
             detail_status_page: detail_status_page.clone(),
             detail_stack: detail_stack.clone(),
             active_detail: active_detail.clone(),
-            auto_refresh_task: auto_refresh_task.clone(),
-            current_refresh_interval: current_refresh_interval.clone(),
+            background_refresh_task: background_refresh_task.clone(),
         };
 
         main_window.build_ui();
         main_window.prime_favorites();
         main_window.observe_favorites();
-        main_window.observe_preferences();
         main_window.check_authentication();
         main_window
     }
@@ -233,7 +234,7 @@ impl MainWindow {
         // Keep the sidebar at its natural width and let the detail pane use remaining space.
         split_pane.set_resize_start_child(false);
         split_pane.set_resize_end_child(true);
-        split_pane.set_position(420);
+        split_pane.set_position(360);
 
         main_box.append(&split_pane);
 
@@ -391,8 +392,13 @@ impl MainWindow {
                     Some(_) => RepoActionsState::Disabled,
                     None => RepoActionsState::Unknown,
                 };
-                actions.insert(repo.id, state);
+                actions.entry(repo.id).or_insert(state);
             }
+        }
+
+        {
+            let mut checked = self.actions_checked_at.lock();
+            checked.retain(|repo_id, _| repos.iter().any(|repo| repo.id == *repo_id));
         }
 
         {
@@ -446,6 +452,7 @@ impl MainWindow {
     fn spawn_repo_status_tasks(&self, repos: Vec<Repo>) {
         let client_arc = self.client.clone();
         let actions_state = self.actions_states.clone();
+        let actions_checked_at = self.actions_checked_at.clone();
         let workflow_state = self.workflow_counts.clone();
         let this = self.clone();
 
@@ -471,6 +478,7 @@ impl MainWindow {
                     .for_each_concurrent(5, |repo| {
                         let client = client.clone();
                         let actions_state = actions_state.clone();
+                        let actions_checked_at = actions_checked_at.clone();
                         let workflow_state = workflow_state.clone();
 
                         async move {
@@ -478,24 +486,58 @@ impl MainWindow {
                             let repo_name = repo.name.clone();
                             let repo_id = repo.id;
 
-                            // Check actions enabled
-                            match client.is_actions_enabled(&owner, &repo_name).await {
-                                Ok(enabled) => {
-                                    let mut actions = actions_state.lock();
-                                    actions.insert(
-                                        repo_id,
-                                        if enabled {
-                                            RepoActionsState::Enabled
-                                        } else {
-                                            RepoActionsState::Disabled
-                                        },
-                                    );
+                            let should_refresh_actions = {
+                                let current_state = {
+                                    let actions = actions_state.lock();
+                                    actions.get(&repo_id).copied()
+                                };
+
+                                let last_checked = {
+                                    let checked = actions_checked_at.lock();
+                                    checked.get(&repo_id).copied()
+                                };
+
+                                match (current_state, last_checked) {
+                                    (
+                                        Some(
+                                            RepoActionsState::Enabled | RepoActionsState::Disabled,
+                                        ),
+                                        Some(timestamp),
+                                    ) => timestamp.elapsed() >= ACTIONS_STATUS_TTL,
+                                    (
+                                        Some(
+                                            RepoActionsState::Enabled | RepoActionsState::Disabled,
+                                        ),
+                                        None,
+                                    ) => true,
+                                    (Some(RepoActionsState::Unknown), _) => true,
+                                    (None, _) => true,
                                 }
-                                Err(err) => {
-                                    warn!(
-                                        "Failed to fetch actions status for {}/{}: {}",
-                                        owner, repo_name, err
-                                    );
+                            };
+
+                            // Check actions enabled
+                            if should_refresh_actions {
+                                match client.is_actions_enabled(&owner, &repo_name).await {
+                                    Ok(enabled) => {
+                                        let mut actions = actions_state.lock();
+                                        actions.insert(
+                                            repo_id,
+                                            if enabled {
+                                                RepoActionsState::Enabled
+                                            } else {
+                                                RepoActionsState::Disabled
+                                            },
+                                        );
+
+                                        let mut checked = actions_checked_at.lock();
+                                        checked.insert(repo_id, Instant::now());
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            "Failed to fetch actions status for {}/{}: {}",
+                                            owner, repo_name, err
+                                        );
+                                    }
                                 }
                             }
 
@@ -558,101 +600,6 @@ impl MainWindow {
                 }
             });
         }
-    }
-
-    fn observe_preferences(&self) {
-        if let Some(manager) = &self.preferences_manager {
-            let mut receiver = manager.subscribe();
-            let initial_interval = receiver.borrow().refresh_interval;
-            self.configure_auto_refresh(initial_interval);
-
-            let (sender, receiver_channel) =
-                glib::MainContext::default().channel::<u64>(glib::Priority::default());
-            let this = self.clone();
-
-            receiver_channel.attach(None, move |interval| {
-                this.configure_auto_refresh(interval);
-                glib::ControlFlow::Continue
-            });
-
-            crate::runtime_handle().spawn(async move {
-                loop {
-                    if receiver.changed().await.is_err() {
-                        break;
-                    }
-
-                    let interval = receiver.borrow().refresh_interval;
-                    if sender.send(interval).is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-    }
-
-    fn configure_auto_refresh(&self, interval_seconds: u64) {
-        {
-            let mut current = self.current_refresh_interval.lock();
-            if *current == interval_seconds {
-                return;
-            }
-            *current = interval_seconds;
-        }
-
-        if let Some(handle) = self.auto_refresh_task.lock().take() {
-            handle.abort();
-        }
-
-        if interval_seconds == 0 {
-            return;
-        }
-
-        let (sender, receiver) = glib::MainContext::default()
-            .channel::<(Result<Vec<Repo>, GitHubError>, Option<RateLimitInfo>)>(
-                glib::Priority::default(),
-            );
-        let this = self.clone();
-
-        receiver.attach(None, move |(repos_result, rate_info)| {
-            match repos_result {
-                Ok(repos) => this.refresh_repository_view(repos, rate_info),
-                Err(err) => {
-                    error!("Failed to auto-refresh repositories: {}", err);
-                    this.update_rate_limit_display(rate_info);
-                }
-            }
-
-            glib::ControlFlow::Continue
-        });
-
-        let client_arc = self.client.clone();
-        let sender_clone = sender.clone();
-
-        let handle = crate::runtime_handle().spawn(async move {
-            let sender = sender_clone;
-
-            loop {
-                tokio::time::sleep(Duration::from_secs(interval_seconds)).await;
-
-                let client_opt = {
-                    let guard = client_arc.lock();
-                    guard.clone()
-                };
-
-                let Some(client) = client_opt else {
-                    continue;
-                };
-
-                let repos_result = client.list_repos().await;
-                let rate_info = client.rate_limit_info();
-
-                if sender.send((repos_result, rate_info)).is_err() {
-                    break;
-                }
-            }
-        });
-
-        *self.auto_refresh_task.lock() = Some(handle);
     }
 
     fn connect_refresh_button(&self, button: &gtk::Button) {
@@ -777,10 +724,12 @@ impl MainWindow {
         match repo {
             Some(repo) => {
                 *self.selected_repo_id.lock() = Some(repo.id);
+                self.start_background_refresh(repo.clone());
                 self.present_repo_detail(repo);
             }
             None => {
                 *self.selected_repo_id.lock() = None;
+                self.stop_background_refresh();
                 self.show_detail_placeholder();
             }
         }
@@ -836,6 +785,62 @@ impl MainWindow {
         });
 
         schedule_status_page_update(status_page, None);
+    }
+
+    fn start_background_refresh(&self, _repo: Repo) {
+        // Stop any existing refresh task
+        self.stop_background_refresh();
+
+        let preferences_manager = match &self.preferences_manager {
+            Some(manager) => manager.clone(),
+            None => return,
+        };
+
+        let client_arc = self.client.clone();
+        let active_detail = self.active_detail.clone();
+
+        let (sender, receiver) =
+            glib::MainContext::default().channel::<()>(glib::Priority::default());
+
+        receiver.attach(None, move |_| {
+            // Trigger a refresh on the active detail pane
+            if let Some(pane) = active_detail.borrow().as_ref() {
+                pane.refresh_workflows_silent();
+            }
+            glib::ControlFlow::Continue
+        });
+
+        let handle = crate::runtime_handle().spawn(async move {
+            loop {
+                // Get the current refresh interval
+                let interval = preferences_manager.get().await.refresh_interval;
+
+                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+
+                // Check if we still have a client
+                let client_opt = {
+                    let guard = client_arc.lock();
+                    guard.clone()
+                };
+
+                if client_opt.is_none() {
+                    break;
+                }
+
+                // Signal the UI to refresh
+                if sender.send(()).is_err() {
+                    break;
+                }
+            }
+        });
+
+        *self.background_refresh_task.lock() = Some(handle);
+    }
+
+    fn stop_background_refresh(&self) {
+        if let Some(handle) = self.background_refresh_task.lock().take() {
+            handle.abort();
+        }
     }
 
     pub fn present(&self) {

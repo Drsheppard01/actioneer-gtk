@@ -254,6 +254,46 @@ impl RepoDetailPane {
         });
     }
 
+    pub fn refresh_workflows_silent(&self) {
+        let client = self.client.clone();
+        let workflows = self.workflows.clone();
+        let owner = self.repo.owner.login.clone();
+        let repo_name = self.repo.name.clone();
+        let list_box = self.list_box.clone();
+
+        let (sender, receiver) = glib::MainContext::default()
+            .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
+
+        receiver.attach(None, move |result| {
+            match result {
+                Ok(wf_list) => {
+                    // Only update if there are changes (ETag will prevent unnecessary updates)
+                    let current = workflows.lock().clone();
+                    if workflows_differ(&current, &wf_list) {
+                        info!("Silent refresh detected workflow changes");
+                        *workflows.lock() = wf_list.clone();
+                        update_workflows_list(&list_box, &wf_list);
+                    }
+                }
+                Err(e) => {
+                    // Silent refresh failures are logged but not shown to user
+                    if !matches!(e, GitHubError::ApiError(ref msg) if msg.contains("Not modified"))
+                    {
+                        warn!("Silent workflow refresh failed: {}", e);
+                    }
+                }
+            }
+
+            glib::ControlFlow::Break
+        });
+
+        crate::runtime_handle().spawn(async move {
+            let client_clone = client.lock().clone();
+            let result = fetch_workflows(&client_clone, &owner, &repo_name).await;
+            let _ = sender.send(result);
+        });
+    }
+
     fn connect_refresh_button(&self, button: &gtk::Button) {
         let client = self.client.clone();
         let workflows = self.workflows.clone();
@@ -401,4 +441,15 @@ fn update_detail_favorite_button(button: &gtk::ToggleButton, is_active: bool) {
         button.add_css_class("flat");
         button.set_opacity(0.5);
     }
+}
+
+fn workflows_differ(a: &[Workflow], b: &[Workflow]) -> bool {
+    if a.len() != b.len() {
+        return true;
+    }
+
+    let a_ids: std::collections::HashSet<_> = a.iter().map(|w| w.id).collect();
+    let b_ids: std::collections::HashSet<_> = b.iter().map(|w| w.id).collect();
+
+    a_ids != b_ids
 }

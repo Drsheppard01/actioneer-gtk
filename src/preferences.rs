@@ -29,7 +29,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            refresh_interval: 0, // Disabled by default
+            refresh_interval: 5, // Default 5 seconds (matching macOS)
             last_selected_repo_id: None,
             window_width: 1000,
             window_height: 700,
