@@ -3,6 +3,10 @@
 
 This repository is a native GTK4/libadwaita desktop client for GitHub Actions written in Rust. The notes below focus on the patterns and files an AI coding agent should know to make safe, useful changes quickly.
 
+Important local docs
+- The repository contains a curated, local copy of Libadwaita 1.8 reference documentation under `docs/libadwaita/`. Automated agents MUST consult `docs/libadwaita/` for widget and helper guidance when making UI changes. These local docs are the canonical reference for UI implementation in this repo and are preferred over remote fetches to avoid network variability and version skew.
+- General project documentation is in `docs/`; use `docs/` first for any implementation or styling questions before consulting upstream web pages.
+
 - Repo entry & runtime
   - App entry: `src/main.rs`. A Tokio runtime is spawned on a background thread and a global handle is stored via `OnceLock`. Use `crate::runtime_handle()` to run async HTTP work on the background runtime.
   - UI run-loop: GTK / libadwaita run on the GLib main loop. Never touch GTK widgets from Tokio threads.
