@@ -749,6 +749,7 @@ impl MainWindow {
 
         let client_arc = self.client.clone();
         let active_detail = self.active_detail.clone();
+        let rate_limit_label = self.rate_limit_label.clone();
 
         let (sender, receiver) =
             glib::MainContext::default().channel::<()>(glib::Priority::default());
@@ -758,6 +759,15 @@ impl MainWindow {
             if let Some(pane) = active_detail.borrow().as_ref() {
                 pane.refresh_workflows_silent();
             }
+            glib::ControlFlow::Continue
+        });
+
+        let (rate_sender, rate_receiver) =
+            glib::MainContext::default().channel::<RateLimitInfo>(glib::Priority::default());
+
+        let rate_label_clone = rate_limit_label.clone();
+        rate_receiver.attach(None, move |info| {
+            update_rate_limit_label(&rate_label_clone, Some(info));
             glib::ControlFlow::Continue
         });
 
@@ -774,12 +784,19 @@ impl MainWindow {
                     guard.clone()
                 };
 
-                if client_opt.is_none() {
-                    break;
-                }
+                if let Some(client) = client_opt {
+                    // Signal the UI to refresh
+                    if sender.send(()).is_err() {
+                        break;
+                    }
 
-                // Signal the UI to refresh
-                if sender.send(()).is_err() {
+                    // Update rate limit display
+                    if let Some(rate_info) = client.rate_limit_info() {
+                        if rate_sender.send(rate_info).is_err() {
+                            break;
+                        }
+                    }
+                } else {
                     break;
                 }
             }

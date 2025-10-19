@@ -530,13 +530,24 @@ fn create_job_row(job: &Job) -> gtk::Box {
     job_name_label.set_valign(gtk::Align::Center);
     job_box.append(&job_name_label);
 
-    let status_label = gtk::Label::new(Some(&format_job_status(job)));
+    let status_text = format_job_status(job);
+    let status_label = gtk::Label::new(Some(&status_text));
     status_label.add_css_class("dim-label");
     status_label.add_css_class("caption");
     status_label.set_valign(gtk::Align::Center);
     job_box.append(&status_label);
 
-    // Open in GitHub button
+    // Show duration if available
+    if let Some(duration) = job.duration_string() {
+        let duration_label = gtk::Label::new(Some(&duration));
+        duration_label.add_css_class("dim-label");
+        duration_label.add_css_class("caption");
+        duration_label.set_valign(gtk::Align::Center);
+        duration_label.set_margin_start(4);
+        job_box.append(&duration_label);
+    }
+
+    // Open in GitHub button (this also allows viewing logs)
     if let Some(ref url) = job.html_url {
         let open_btn = gtk::Button::from_icon_name("adw-external-link-symbolic");
         open_btn.set_tooltip_text(Some("Open job in GitHub"));

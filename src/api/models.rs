@@ -303,6 +303,31 @@ impl Job {
             String::new()
         }
     }
+
+    /// Returns a formatted duration string (e.g., "2m 34s")
+    pub fn duration_string(&self) -> Option<String> {
+        let started = self.started_at.as_ref()?;
+        let completed = self.completed_at.as_ref()?;
+
+        // Parse ISO 8601 timestamps
+        let start_time = chrono::DateTime::parse_from_rfc3339(started).ok()?;
+        let end_time = chrono::DateTime::parse_from_rfc3339(completed).ok()?;
+
+        let duration = end_time.signed_duration_since(start_time);
+        let seconds = duration.num_seconds();
+
+        if seconds < 60 {
+            Some(format!("{}s", seconds))
+        } else if seconds < 3600 {
+            let minutes = seconds / 60;
+            let secs = seconds % 60;
+            Some(format!("{}m {}s", minutes, secs))
+        } else {
+            let hours = seconds / 3600;
+            let minutes = (seconds % 3600) / 60;
+            Some(format!("{}h {}m", hours, minutes))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
