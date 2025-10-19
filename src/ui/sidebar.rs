@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::warn;
 
+const MAX_WORKFLOWS_PER_REPO: usize = 3;
+
 #[allow(clippy::too_many_arguments)]
 pub fn rebuild_repo_list(
     list_box: gtk::ListBox,
@@ -388,7 +390,7 @@ pub async fn gather_workflow_status_counts(
     let mut active_count = 0;
     let mut failed_count = 0;
 
-    for workflow in workflows {
+    for workflow in workflows.into_iter().take(MAX_WORKFLOWS_PER_REPO) {
         match client.list_runs(owner, repo, workflow.id).await {
             Ok(runs) => {
                 if let Some(latest) = runs.first() {

@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
+const MAX_REPOS_FOR_STATUS: usize = 20;
+
 /// Spawn tasks to check repository status for all repos
 /// Runs checks in parallel (5 concurrent) on tokio runtime
 #[allow(dead_code)] // Will be used when fully integrated
@@ -31,6 +33,8 @@ pub fn spawn_repo_status_tasks<F>(
         }
         glib::ControlFlow::Break
     });
+
+    let repos: Vec<Repo> = repos.into_iter().take(MAX_REPOS_FOR_STATUS).collect();
 
     crate::runtime_handle().spawn(async move {
         use futures::stream::{self, StreamExt};

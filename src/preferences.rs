@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{watch, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)] // Will be used when integrated with UI
@@ -44,6 +44,7 @@ impl Default for Preferences {
 pub struct PreferencesManager {
     prefs: Arc<RwLock<Preferences>>,
     config_path: PathBuf,
+    updates: watch::Sender<Preferences>,
 }
 
 #[allow(dead_code)] // Will be used when integrated with UI
@@ -63,9 +64,12 @@ impl PreferencesManager {
             Preferences::default()
         };
 
+        let (updates, _) = watch::channel(prefs.clone());
+
         Ok(Self {
             prefs: Arc::new(RwLock::new(prefs)),
             config_path,
+            updates,
         })
     }
 
@@ -79,7 +83,9 @@ impl PreferencesManager {
     {
         let mut prefs = self.prefs.write().await;
         f(&mut prefs);
-        self.save(&prefs)?;
+        let current = prefs.clone();
+        self.save(&current)?;
+        let _ = self.updates.send(current);
         Ok(())
     }
 
@@ -105,6 +111,10 @@ impl PreferencesManager {
 
     pub async fn set_sounds_enabled(&self, enabled: bool) -> anyhow::Result<()> {
         self.update(|p| p.enable_sounds = enabled).await
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<Preferences> {
+        self.updates.subscribe()
     }
 
     fn save(&self, prefs: &Preferences) -> anyhow::Result<()> {

@@ -20,6 +20,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 // Import refactored modules
@@ -43,6 +44,8 @@ pub struct MainWindow {
     detail_status_page: adw::StatusPage,
     detail_stack: gtk::Stack,
     active_detail: Rc<RefCell<Option<RepoDetailPane>>>,
+    auto_refresh_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    current_refresh_interval: Arc<Mutex<u64>>,
 }
 
 impl MainWindow {
@@ -107,6 +110,8 @@ impl MainWindow {
         let workflow_counts = Arc::new(Mutex::new(HashMap::new()));
         let selected_repo_id = Arc::new(Mutex::new(None));
         let rate_limit_info = Arc::new(Mutex::new(None));
+        let auto_refresh_task = Arc::new(Mutex::new(None));
+        let current_refresh_interval = Arc::new(Mutex::new(0));
 
         let main_window = Self {
             window: window.clone(),
@@ -125,11 +130,14 @@ impl MainWindow {
             detail_status_page: detail_status_page.clone(),
             detail_stack: detail_stack.clone(),
             active_detail: active_detail.clone(),
+            auto_refresh_task: auto_refresh_task.clone(),
+            current_refresh_interval: current_refresh_interval.clone(),
         };
 
         main_window.build_ui();
         main_window.prime_favorites();
         main_window.observe_favorites();
+        main_window.observe_preferences();
         main_window.check_authentication();
         main_window
     }
@@ -540,6 +548,101 @@ impl MainWindow {
                 }
             });
         }
+    }
+
+    fn observe_preferences(&self) {
+        if let Some(manager) = &self.preferences_manager {
+            let mut receiver = manager.subscribe();
+            let initial_interval = receiver.borrow().refresh_interval;
+            self.configure_auto_refresh(initial_interval);
+
+            let (sender, receiver_channel) =
+                glib::MainContext::default().channel::<u64>(glib::Priority::default());
+            let this = self.clone();
+
+            receiver_channel.attach(None, move |interval| {
+                this.configure_auto_refresh(interval);
+                glib::ControlFlow::Continue
+            });
+
+            crate::runtime_handle().spawn(async move {
+                loop {
+                    if receiver.changed().await.is_err() {
+                        break;
+                    }
+
+                    let interval = receiver.borrow().refresh_interval;
+                    if sender.send(interval).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
+    fn configure_auto_refresh(&self, interval_seconds: u64) {
+        {
+            let mut current = self.current_refresh_interval.lock();
+            if *current == interval_seconds {
+                return;
+            }
+            *current = interval_seconds;
+        }
+
+        if let Some(handle) = self.auto_refresh_task.lock().take() {
+            handle.abort();
+        }
+
+        if interval_seconds == 0 {
+            return;
+        }
+
+        let (sender, receiver) = glib::MainContext::default()
+            .channel::<(Result<Vec<Repo>, GitHubError>, Option<RateLimitInfo>)>(
+                glib::Priority::default(),
+            );
+        let this = self.clone();
+
+        receiver.attach(None, move |(repos_result, rate_info)| {
+            match repos_result {
+                Ok(repos) => this.refresh_repository_view(repos, rate_info),
+                Err(err) => {
+                    error!("Failed to auto-refresh repositories: {}", err);
+                    this.update_rate_limit_display(rate_info);
+                }
+            }
+
+            glib::ControlFlow::Continue
+        });
+
+        let client_arc = self.client.clone();
+        let sender_clone = sender.clone();
+
+        let handle = crate::runtime_handle().spawn(async move {
+            let sender = sender_clone;
+
+            loop {
+                tokio::time::sleep(Duration::from_secs(interval_seconds)).await;
+
+                let client_opt = {
+                    let guard = client_arc.lock();
+                    guard.clone()
+                };
+
+                let Some(client) = client_opt else {
+                    continue;
+                };
+
+                let repos_result = client.list_repos().await;
+                let rate_info = client.rate_limit_info();
+
+                if sender.send((repos_result, rate_info)).is_err() {
+                    break;
+                }
+            }
+        });
+
+        *self.auto_refresh_task.lock() = Some(handle);
     }
 
     fn connect_refresh_button(&self, button: &gtk::Button) {
