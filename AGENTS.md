@@ -13,7 +13,11 @@ Agent responsibilities
 
 Development workflow for agents
 1. Read `.github/copilot-instructions.md` and this `AGENTS.md`.
-2. Create a short todo list to track tasks and set one item to `in-progress`.
+2. **Use TODO.md as the single source of truth for progress tracking.** Update TODO.md with:
+   - Mark items as [🔄] when starting work
+   - Mark items as [✅] when completed
+   - Add detailed notes in the "Recent Updates" section
+   - Keep the file current throughout the session
 3. Make minimal, well-scoped edits. Prefer edits that are small and testable.
 4. Run format and build checks locally in the workspace. Use the project's cargo toolchain.
 5. When adding HTTP caching or background work, ensure:

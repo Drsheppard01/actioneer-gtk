@@ -219,11 +219,16 @@ fn create_run_expander_row(
     let run_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     run_box.set_margin_top(4);
     run_box.set_margin_bottom(4);
+    run_box.add_css_class("card");
+    run_box.set_margin_start(4);
+    run_box.set_margin_end(4);
 
     // Main row container
     let row_container = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    row_container.set_margin_start(0);
-    row_container.set_margin_end(0);
+    row_container.set_margin_start(12);
+    row_container.set_margin_end(12);
+    row_container.set_margin_top(8);
+    row_container.set_margin_bottom(8);
     row_container.set_valign(gtk::Align::Center);
 
     // Expander for the run

@@ -21,6 +21,7 @@
 - [✅] Show branch name for each run
 - [✅] Add relative time display ("2h ago", "Just now", etc.)
 - [ ] Implement time string auto-update (every 60 seconds)
+  - Note: Complex feature requiring weak references to labels; time updates happen on refresh for now
 
 ### 1.3 Job Summary Badges
 - [✅] Show job count badges per run (e.g., "🟢 4" for completed jobs)
@@ -101,7 +102,7 @@
 ### 6.1 Visual Improvements
 - [✅] Add proper spacing between runs
 - [✅] Improve vertical alignment of UI elements
-- [ ] Add subtle background for each run row
+- [✅] Add subtle background for each run row
 - [ ] Improve expand/collapse animations
 - [✅] Add loading spinners for job fetching
 - [ ] Polish button hover states
@@ -233,7 +234,16 @@
    - Helps users understand the scope of displayed runs
    - Consistent styling with other count displays
 
-5. **Code Improvements** ✅ - Refactored helper functions for better maintainability
+5. **Visual Improvements** ✅ - Added subtle backgrounds for run rows
+   - Applied "card" CSS class to run boxes for better visual separation
+   - Added proper padding and margins to run containers
+   - Improved overall visual hierarchy
+
+6. **AGENTS.md Update** ✅ - Updated agent workflow instructions
+   - Agents now use TODO.md as single source of truth
+   - Clearer progress tracking guidelines
+
+7. **Code Improvements** ✅ - Refactored helper functions for better maintainability
    - Added `update_job_summary_badges` function
    - Added `update_workflow_status_badge` function
    - Added `create_job_badge` helper function
@@ -243,6 +253,8 @@
 
 ### Files Modified:
 - `src/ui/detail_view/helpers.rs` - Main implementation of new features
+- `src/ui/detail_view/mod.rs` - Attempted time update mechanism (reverted to keep simple)
+- `AGENTS.md` - Updated workflow instructions
 - `TODO.md` - Updated progress tracking
 
 ### Technical Details:
@@ -250,20 +262,29 @@
 - Workflow status determined from most recent run's conclusion/status
 - All UI updates happen on GLib main thread as required
 - Clean separation of concerns between data fetching and UI updates
+- Run rows now use libadwaita "card" class for better visual appearance
+
+### Deferred Features:
+- **Time string auto-update**: Deferred due to complexity
+  - Would require tracking weak references to all time labels
+  - Alternative: Time strings update naturally on next refresh
+  - Not critical since auto-refresh happens every 5 seconds by default
+  
+- **Auto-refresh for active runs**: Complex feature
+  - Requires state tracking to avoid redundant API calls
+  - Should integrate with existing refresh mechanism
+  - Needs careful design to avoid rate limiting
 
 ### Next Priority Items:
-1. **Time string auto-update** - Update relative times every 60 seconds
-   - Requires: Periodic timer with weak references to labels
-   - Complexity: Medium (need to track label references safely)
-   
-2. **Auto-refresh for active runs** - Periodically refresh in-progress runs
-   - Requires: Background refresh logic with run state tracking
-   - Complexity: High (needs to avoid redundant API calls)
-   
-3. **Trigger workflow button** - Manual workflow dispatch
+1. **Workflow trigger button** - Manual workflow dispatch
    - Requires: UI for selecting ref/branch + API integration
-   - Complexity: Medium (API already exists)
+   - Complexity: Medium (API already exists at `dispatch_workflow`)
+   - High value for manual workflow execution
    
-4. **Job logs viewer button** - Wire existing logs window to detail view
-   - Requires: Pass client/repo context to job row creation
-   - Complexity: Low (infrastructure already exists)
+2. **Enhanced error handling** - Show retry mechanisms and user-friendly error messages
+   - Complexity: Low (add error banners/toasts)
+   - High value for better UX
+   
+3. **Caching integration** - Use existing DataCache for runs and jobs
+   - Complexity: Medium (cache infrastructure exists but not wired)
+   - Medium value for reducing API calls
