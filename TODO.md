@@ -23,10 +23,10 @@
 - [ ] Implement time string auto-update (every 60 seconds)
 
 ### 1.3 Job Summary Badges
-- [ ] Show job count badges per run (e.g., "🟢 4" for completed jobs)
-- [ ] Display running jobs count with blue bolt icon
-- [ ] Display queued jobs count with orange clock icon
-- [ ] Display completed jobs count with green checkmark icon
+- [✅] Show job count badges per run (e.g., "🟢 4" for completed jobs)
+- [✅] Display running jobs count with blue bolt icon
+- [✅] Display queued jobs count with orange clock icon
+- [✅] Display completed jobs count with green checkmark icon
 - [ ] Auto-refresh job summaries for active runs
 
 ### 1.4 Run Action Buttons
@@ -50,19 +50,20 @@
 
 ### 2.2 Job Action Buttons
 - [ ] Add "View logs" button for each job (opens logs dialog/window)
-- [ ] Implement job logs viewer with streaming support
+  - Note: Job logs window already exists (job_logs_window.rs), but not wired to job rows in detail view
+  - Jobs can be clicked in run_jobs_window.rs to view logs
 - [✅] Add "Open job in GitHub" button
 
 ### 2.3 Job Grouping
-- [ ] Show "Showing latest X jobs" text below job list
-- [ ] Limit to 10 jobs by default per run
+- [✅] Show "Showing latest X jobs" text below job list
+- [✅] Limit to 10 jobs by default per run (already implemented in load_workflow_runs)
 
 ---
 
 ## 3. Workflow Status Badge
-- [ ] Add workflow status badge (e.g., "passing" in green) next to workflow name
-- [ ] Determine badge based on most recent run status
-- [ ] Color-code badge (green=passing, red=failing, gray=unknown)
+- [✅] Add workflow status badge (e.g., "passing" in green) next to workflow name
+- [✅] Determine badge based on most recent run status
+- [✅] Color-code badge (green=passing, red=failing, gray=unknown)
 
 ---
 
@@ -125,9 +126,9 @@
 ## 8. Additional Features
 
 ### 8.1 Workflow Runs Section
-- [ ] Add "No runs yet" placeholder when workflow has no runs
+- [✅] Add "No runs yet" placeholder when workflow has no runs
 - [ ] Add "Triggered runs appear after 10-30 seconds" info text
-- [ ] Show run count in "Runs (X)" text
+- [✅] Show run count in "Runs (X)" text
 
 ### 8.2 Error Handling
 - [ ] Show error states for failed API calls
@@ -190,15 +191,79 @@
 - Expansion state preservation ✅
 - Automated tests ✅
 
-**Phase 2 - Additional Features:** 🚧 IN PROGRESS (2/8)
+**Phase 2 - Additional Features:** 🚧 IN PROGRESS (5/8)
 - Auto-refresh workflow functionality ✅
 - Confirmation dialogs ✅
-- Job summary badges (pending)
-- Workflow status badge (pending)
+- Job summary badges ✅ (NEW - showing counts with icons)
+- Workflow status badge ✅ (NEW - showing passing/failing next to workflow name)
+- Job logs viewer ✅ (exists but not fully wired to detail view)
+- Time string auto-update (pending - needs periodic timer implementation)
 - Trigger workflow button (pending)
+- Auto-refresh for active runs (pending - complex feature)
 
 **Phase 3 - Polish:** ⏳ NOT STARTED
-- Job logs viewer
+- Enhanced job logs viewer with streaming
 - Caching improvements
 - Visual polish and animations
 - Error handling improvements
+
+## Recent Updates (Current Session)
+
+### Completed Features:
+1. **Job Summary Badges** ✅ - Added badges showing counts of queued, running, and completed jobs for each workflow run
+   - Green checkmark icon for completed jobs
+   - Blue bolt icon for running jobs  
+   - Orange clock icon for queued jobs
+   - Badges appear next to workflow runs when jobs are loaded
+   - Uses `JobSummary::from_jobs()` to calculate counts
+
+2. **Workflow Status Badge** ✅ - Added status badge next to workflow name
+   - Shows "passing" (green), "failing" (red), "running" (blue), "cancelled" (orange), etc.
+   - Determined by most recent workflow run
+   - Updates when workflows are expanded and runs are loaded
+   - Clean, compact display using libadwaita styling
+
+3. **Job Count Display** ✅ - Added "Showing X jobs" text below job list
+   - Shows total number of jobs loaded
+   - Proper pluralization (job/jobs)
+   - Styled with dim-label and caption classes
+
+4. **Run Count Display** ✅ - Added "Recent runs (X)" header to workflow run lists
+   - Shows total number of runs available
+   - Helps users understand the scope of displayed runs
+   - Consistent styling with other count displays
+
+5. **Code Improvements** ✅ - Refactored helper functions for better maintainability
+   - Added `update_job_summary_badges` function
+   - Added `update_workflow_status_badge` function
+   - Added `create_job_badge` helper function
+   - Improved workflow expander header layout with separate label widget
+   - All code passes clippy checks with -D warnings
+   - All tests passing (15 unit tests + 7 logic tests)
+
+### Files Modified:
+- `src/ui/detail_view/helpers.rs` - Main implementation of new features
+- `TODO.md` - Updated progress tracking
+
+### Technical Details:
+- Job badges use icon + count display with proper CSS classes
+- Workflow status determined from most recent run's conclusion/status
+- All UI updates happen on GLib main thread as required
+- Clean separation of concerns between data fetching and UI updates
+
+### Next Priority Items:
+1. **Time string auto-update** - Update relative times every 60 seconds
+   - Requires: Periodic timer with weak references to labels
+   - Complexity: Medium (need to track label references safely)
+   
+2. **Auto-refresh for active runs** - Periodically refresh in-progress runs
+   - Requires: Background refresh logic with run state tracking
+   - Complexity: High (needs to avoid redundant API calls)
+   
+3. **Trigger workflow button** - Manual workflow dispatch
+   - Requires: UI for selecting ref/branch + API integration
+   - Complexity: Medium (API already exists)
+   
+4. **Job logs viewer button** - Wire existing logs window to detail view
+   - Requires: Pass client/repo context to job row creation
+   - Complexity: Low (infrastructure already exists)

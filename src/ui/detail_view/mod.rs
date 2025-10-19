@@ -28,6 +28,7 @@ pub struct RepoDetailPane {
     buttons_box: gtk::Box,
     list_box: gtk::ListBox,
     root: gtk::Box,
+    loading: Arc<Mutex<bool>>, // Guard against re-entrant loads
 }
 
 impl RepoDetailPane {
@@ -76,6 +77,7 @@ impl RepoDetailPane {
             buttons_box: buttons_box.clone(),
             list_box: list_box.clone(),
             root: root.clone(),
+            loading: Arc::new(Mutex::new(false)),
         };
 
         pane.build_ui();
@@ -256,12 +258,23 @@ impl RepoDetailPane {
     }
 
     fn load_workflows(&self) {
+        // Guard against re-entrant calls
+        {
+            let mut loading_guard = self.loading.lock();
+            if *loading_guard {
+                info!("Already loading workflows, skipping duplicate request");
+                return;
+            }
+            *loading_guard = true;
+        }
+
         let client = self.client.clone();
         let workflows = self.workflows.clone();
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
         let parent_window = self.parent.clone();
+        let loading_guard = self.loading.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -278,6 +291,9 @@ impl RepoDetailPane {
         receiver.attach(None, move |result| {
             // Hide loading spinner
             callback_refs.show_loading(false);
+
+            // Clear loading flag
+            *loading_guard.lock() = false;
 
             match result {
                 Ok(wf_list) => {
@@ -309,12 +325,23 @@ impl RepoDetailPane {
     }
 
     pub fn refresh_workflows_silent(&self) {
+        // Guard against re-entrant calls
+        {
+            let mut loading_guard = self.loading.lock();
+            if *loading_guard {
+                info!("Already loading workflows, skipping silent refresh");
+                return;
+            }
+            *loading_guard = true;
+        }
+
         let client = self.client.clone();
         let workflows = self.workflows.clone();
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
         let parent_window = self.parent.clone();
+        let loading_guard = self.loading.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -325,6 +352,9 @@ impl RepoDetailPane {
         let repo_name_for_spawn = repo_name.clone();
 
         receiver.attach(None, move |result| {
+            // Clear loading flag
+            *loading_guard.lock() = false;
+
             match result {
                 Ok(wf_list) => {
                     // Only update if there are changes (ETag will prevent unnecessary updates)
@@ -370,8 +400,19 @@ impl RepoDetailPane {
         let list_box = self.list_box.clone();
         let callback_refs = self.clone_for_callbacks();
         let parent_window = self.parent.clone();
+        let loading_guard = self.loading.clone();
 
         button.connect_clicked(move |_| {
+            // Guard against re-entrant calls
+            {
+                let mut guard = loading_guard.lock();
+                if *guard {
+                    info!("Already loading workflows, ignoring refresh click");
+                    return;
+                }
+                *guard = true;
+            }
+
             let client = client.clone();
             let workflows = workflows.clone();
             let owner = owner.clone();
@@ -379,6 +420,7 @@ impl RepoDetailPane {
             let list_box = list_box.clone();
             let callback_refs = callback_refs.clone();
             let parent_window = parent_window.clone();
+            let loading_guard = loading_guard.clone();
 
             // Show loading spinner
             callback_refs.show_loading(true);
@@ -396,6 +438,9 @@ impl RepoDetailPane {
             receiver.attach(None, move |result| {
                 // Hide loading spinner
                 callback_refs_for_ui.show_loading(false);
+
+                // Clear loading flag
+                *loading_guard.lock() = false;
 
                 match result {
                     Ok(wf_list) => {

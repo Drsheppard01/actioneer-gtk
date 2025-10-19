@@ -1,5 +1,5 @@
 // Helper functions for the detail view expandable UI
-use crate::api::models::{Job, Workflow, WorkflowRun};
+use crate::api::models::{Job, JobSummary, Workflow, WorkflowRun};
 use crate::api::{GitHubClient, GitHubError};
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
@@ -23,12 +23,30 @@ pub fn create_workflow_expander_row(
 
     let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
+    // Create a horizontal box for the workflow name and status badge
+    let header_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    header_box.set_margin_top(8);
+    header_box.set_margin_bottom(8);
+    header_box.set_margin_start(12);
+    header_box.set_margin_end(12);
+
+    // Workflow name label
+    let workflow_name_label = gtk::Label::new(Some(&workflow.name));
+    workflow_name_label.set_halign(gtk::Align::Start);
+    workflow_name_label.set_hexpand(true);
+    header_box.append(&workflow_name_label);
+
+    // Status badge (will be populated when runs are loaded)
+    let status_badge = gtk::Label::new(None);
+    status_badge.add_css_class("caption");
+    status_badge.add_css_class("badge");
+    status_badge.set_halign(gtk::Align::End);
+    status_badge.set_visible(false);
+    header_box.append(&status_badge);
+
     // Expander for the workflow
-    let expander = gtk::Expander::new(Some(&workflow.name));
-    expander.set_margin_top(8);
-    expander.set_margin_bottom(8);
-    expander.set_margin_start(12);
-    expander.set_margin_end(12);
+    let expander = gtk::Expander::new(None);
+    expander.set_label_widget(Some(&header_box));
 
     // Set widget name so we can identify this expander when checking expansion state
     expander.set_widget_name(&format!("workflow_{}", workflow.id));
@@ -57,6 +75,7 @@ pub fn create_workflow_expander_row(
     let workflow_id = workflow.id;
     let runs_box_clone = runs_box.clone();
     let parent_window = parent_window.clone();
+    let status_badge_clone = status_badge.clone();
 
     // Track if we're programmatically expanding (to avoid triggering load)
     let is_programmatic_expand = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -84,6 +103,7 @@ pub fn create_workflow_expander_row(
                     workflow_id,
                     runs_box_clone.clone(),
                     parent_window.clone(),
+                    Some(status_badge_clone.clone()),
                 );
             }
         }
@@ -107,6 +127,7 @@ fn load_workflow_runs(
     workflow_id: i64,
     runs_box: gtk::Box,
     parent_window: adw::ApplicationWindow,
+    status_badge: Option<gtk::Label>,
 ) {
     // Show loading indicator
     while let Some(child) = runs_box.first_child() {
@@ -144,6 +165,23 @@ fn load_workflow_runs(
                 runs_box.append(&label);
             }
             Ok(runs) => {
+                // Update workflow status badge based on most recent run
+                if let Some(ref badge) = status_badge {
+                    if let Some(latest_run) = runs.first() {
+                        update_workflow_status_badge(badge, latest_run);
+                    }
+                }
+
+                let run_count = runs.len();
+
+                // Add a header showing run count
+                let count_label = gtk::Label::new(Some(&format!("Recent runs ({})", run_count)));
+                count_label.add_css_class("dim-label");
+                count_label.add_css_class("caption");
+                count_label.set_halign(gtk::Align::Start);
+                count_label.set_margin_bottom(8);
+                runs_box.append(&count_label);
+
                 for run in runs.iter().take(10) {
                     let run_row =
                         create_run_expander_row(run, &client, &owner, &repo, &parent_window_clone);
@@ -223,6 +261,17 @@ fn create_run_expander_row(
     expander.set_label_widget(Some(&label_box));
 
     row_container.append(&expander);
+
+    // Job summary badges (placeholder that will be filled when jobs are loaded)
+    let badges_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    badges_box.set_valign(gtk::Align::Center);
+    badges_box.set_halign(gtk::Align::End);
+    badges_box.set_margin_end(8);
+
+    // Store badges_box reference for later update
+    let badges_box_for_load = badges_box.clone();
+
+    row_container.append(&badges_box);
 
     // Action buttons box
     let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
@@ -449,6 +498,7 @@ fn create_run_expander_row(
                     repo_name.clone(),
                     run_id,
                     jobs_box_clone.clone(),
+                    Some(badges_box_for_load.clone()),
                 );
             }
         }
@@ -463,6 +513,7 @@ fn load_run_jobs(
     repo: String,
     run_id: i64,
     jobs_box: gtk::Box,
+    badges_box: Option<gtk::Box>,
 ) {
     // Show loading
     while let Some(child) = jobs_box.first_child() {
@@ -489,9 +540,30 @@ fn load_run_jobs(
                 jobs_box.append(&label);
             }
             Ok(jobs) => {
+                // Update badges with job summary
+                if let Some(ref badges) = badges_box {
+                    update_job_summary_badges(badges, &jobs);
+                }
+
+                let total_jobs = jobs.len();
                 for job in jobs.iter() {
-                    let job_row = create_job_row(job);
+                    let job_row = create_job_row_simple(job);
                     jobs_box.append(&job_row);
+                }
+
+                // Show job count info if there are jobs
+                if total_jobs > 0 {
+                    let count_label = gtk::Label::new(Some(&format!(
+                        "Showing {} job{}",
+                        total_jobs,
+                        if total_jobs == 1 { "" } else { "s" }
+                    )));
+                    count_label.add_css_class("dim-label");
+                    count_label.add_css_class("caption");
+                    count_label.set_halign(gtk::Align::Start);
+                    count_label.set_margin_top(8);
+                    count_label.set_margin_bottom(4);
+                    jobs_box.append(&count_label);
                 }
             }
             Err(e) => {
@@ -513,7 +585,7 @@ fn load_run_jobs(
     });
 }
 
-fn create_job_row(job: &Job) -> gtk::Box {
+fn create_job_row_simple(job: &Job) -> gtk::Box {
     let job_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     job_box.set_margin_top(4);
     job_box.set_margin_bottom(4);
@@ -546,6 +618,9 @@ fn create_job_row(job: &Job) -> gtk::Box {
         duration_label.set_margin_start(4);
         job_box.append(&duration_label);
     }
+
+    // Note: View logs button would require parent window reference and client
+    // For now, we only show the "Open in GitHub" button which also allows viewing logs
 
     // Open in GitHub button (this also allows viewing logs)
     if let Some(ref url) = job.html_url {
@@ -681,4 +756,87 @@ fn get_job_status_class(job: &Job) -> &'static str {
         return "accent";
     }
     ""
+}
+
+fn update_job_summary_badges(badges_box: &gtk::Box, jobs: &[Job]) {
+    // Clear existing badges
+    while let Some(child) = badges_box.first_child() {
+        badges_box.remove(&child);
+    }
+
+    let summary = JobSummary::from_jobs(jobs);
+
+    // Only show badges if there are jobs
+    if summary.is_empty() {
+        return;
+    }
+
+    // Completed jobs badge (green checkmark)
+    if summary.completed > 0 {
+        let badge = create_job_badge(
+            "emblem-default-symbolic",
+            &summary.completed.to_string(),
+            "success",
+        );
+        badges_box.append(&badge);
+    }
+
+    // Running jobs badge (blue bolt)
+    if summary.running > 0 {
+        let badge = create_job_badge(
+            "media-playback-start-symbolic",
+            &summary.running.to_string(),
+            "accent",
+        );
+        badges_box.append(&badge);
+    }
+
+    // Queued jobs badge (orange clock)
+    if summary.queued > 0 {
+        let badge = create_job_badge("alarm-symbolic", &summary.queued.to_string(), "warning");
+        badges_box.append(&badge);
+    }
+}
+
+fn create_job_badge(icon_name: &str, count: &str, css_class: &str) -> gtk::Box {
+    let badge = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    badge.add_css_class("badge");
+    badge.set_valign(gtk::Align::Center);
+
+    let icon = gtk::Image::from_icon_name(icon_name);
+    icon.set_pixel_size(12);
+    icon.add_css_class(css_class);
+    badge.append(&icon);
+
+    let label = gtk::Label::new(Some(count));
+    label.add_css_class("caption");
+    label.add_css_class(css_class);
+    badge.append(&label);
+
+    badge
+}
+
+fn update_workflow_status_badge(badge: &gtk::Label, latest_run: &WorkflowRun) {
+    let (text, css_class) = match (
+        latest_run.status.as_deref(),
+        latest_run.conclusion.as_deref(),
+    ) {
+        (Some("completed"), Some("success")) => ("passing", "success"),
+        (Some("completed"), Some("failure")) => ("failing", "error"),
+        (Some("completed"), Some("cancelled")) => ("cancelled", "warning"),
+        (Some("in_progress"), _) => ("running", "accent"),
+        (Some("queued"), _) | (Some("waiting"), _) => ("queued", "warning"),
+        _ => ("unknown", "dim-label"),
+    };
+
+    badge.set_text(text);
+
+    // Remove all previous CSS classes
+    let classes = ["success", "error", "warning", "accent", "dim-label"];
+    for class in classes {
+        badge.remove_css_class(class);
+    }
+
+    badge.add_css_class(css_class);
+    badge.set_visible(true);
 }
