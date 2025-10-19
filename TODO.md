@@ -157,9 +157,47 @@
 
 ---
 
+## Testing & Quality Assurance ✅
+
+- [✅] Created automated logic tests (7 tests, all passing)
+- [✅] Test status icon mapping
+- [✅] Test CSS class mapping
+- [✅] Test button visibility logic
+- [✅] Test expansion state preservation
+- [✅] Test auto-refresh intervals
+- [✅] Test run state checks
+- [✅] Documentation: `docs/TESTING.md`
+- [✅] Test report: `docs/TEST_REPORT.md`
+
+---
+
 ## Notes
 - Reference: `macOS/GHActions/Views/WorkflowRowView.swift` for run display logic
 - Reference: `macOS/GHActions/Views/JobsListView.swift` for job display logic
 - Reference: `macOS/GHActions/Extensions/WorkflowRun+Helpers.swift` for status helpers
 - Reference: `macOS/GHActions/Extensions/Job+Helpers.swift` for job helpers
 - All icons use GTK symbolic icon names (need to map from SF Symbols)
+
+## Progress Summary
+
+**Phase 1 - Workflow Runs & Jobs Display:** ✅ COMPLETE
+- Expandable workflow groups ✅
+- Run display with metadata (status, branch, time) ✅
+- Job display under runs ✅
+- Action buttons (rerun, cancel, open in GitHub) ✅  
+- Status icons with color coding ✅
+- Expansion state preservation ✅
+- Automated tests ✅
+
+**Phase 2 - Additional Features:** 🚧 IN PROGRESS (1/8)
+- Auto-refresh workflow functionality ✅
+- Confirmation dialogs (pending)
+- Job summary badges (pending)
+- Workflow status badge (pending)
+- Trigger workflow button (pending)
+
+**Phase 3 - Polish:** ⏳ NOT STARTED
+- Job logs viewer
+- Caching improvements
+- Visual polish and animations
+- Error handling improvements
