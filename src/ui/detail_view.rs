@@ -75,23 +75,16 @@ impl RepoDetailPane {
     }
 
     fn build_ui(&self) {
-        let header = adw::HeaderBar::new();
+        // Header section with repo info, favorite and refresh buttons
+        let header_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        header_box.set_margin_top(24);
+        header_box.set_margin_bottom(12);
+        header_box.set_margin_start(24);
+        header_box.set_margin_end(24);
 
-        let refresh_button = gtk::Button::from_icon_name("view-refresh-symbolic");
-        refresh_button.set_tooltip_text(Some("Refresh workflows"));
-        header.pack_start(&refresh_button);
-
-        let favorite_button = self.favorite_button.clone();
-        favorite_button.set_valign(gtk::Align::Center);
-        header.pack_end(&favorite_button);
-
-        self.root.append(&header);
-
-        let info_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
-        info_box.set_margin_top(12);
-        info_box.set_margin_bottom(12);
-        info_box.set_margin_start(12);
-        info_box.set_margin_end(12);
+        // Left side: repo info
+        let info_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        info_box.set_hexpand(true);
 
         let repo_label = gtk::Label::new(Some(&self.repo.full_name));
         repo_label.add_css_class("title-2");
@@ -101,13 +94,33 @@ impl RepoDetailPane {
         if self.repo.is_private {
             let private_label = gtk::Label::new(Some("Private Repository"));
             private_label.add_css_class("dim-label");
+            private_label.add_css_class("caption");
             private_label.set_halign(gtk::Align::Start);
             info_box.append(&private_label);
         }
 
-        self.root.append(&info_box);
+        header_box.append(&info_box);
+
+        // Right side: buttons
+        let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        buttons_box.set_valign(gtk::Align::Center);
+
+        let refresh_button = gtk::Button::from_icon_name("view-refresh-symbolic");
+        refresh_button.set_tooltip_text(Some("Refresh workflows"));
+        refresh_button.add_css_class("flat");
+        buttons_box.append(&refresh_button);
+
+        let favorite_button = self.favorite_button.clone();
+        favorite_button.set_valign(gtk::Align::Center);
+        buttons_box.append(&favorite_button);
+
+        header_box.append(&buttons_box);
+
+        self.root.append(&header_box);
 
         let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+        separator.set_margin_start(12);
+        separator.set_margin_end(12);
         self.root.append(&separator);
 
         let scrolled = gtk::ScrolledWindow::builder()
