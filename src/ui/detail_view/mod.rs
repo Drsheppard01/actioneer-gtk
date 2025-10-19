@@ -19,9 +19,13 @@ pub struct RepoDetailPane {
     repo: Repo,
     client: Arc<Mutex<GitHubClient>>,
     workflows: Arc<Mutex<Vec<Workflow>>>,
+    #[allow(dead_code)]
+    expanded_workflows: Arc<Mutex<HashSet<i64>>>,
     favorites_manager: Option<Arc<FavoritesManager>>,
     favorites: Arc<Mutex<HashSet<i64>>>,
     favorite_button: gtk::ToggleButton,
+    refresh_button: gtk::Button,
+    buttons_box: gtk::Box,
     list_box: gtk::ListBox,
     root: gtk::Box,
 }
@@ -36,11 +40,19 @@ impl RepoDetailPane {
     ) -> Self {
         info!("Creating RepoDetailPane for: {}", repo.full_name);
         let workflows = Arc::new(Mutex::new(Vec::new()));
+        let expanded_workflows = Arc::new(Mutex::new(HashSet::new()));
 
         let favorite_button = gtk::ToggleButton::new();
         favorite_button.set_icon_name("emblem-favorite-symbolic");
         favorite_button.add_css_class("flat");
         favorite_button.set_tooltip_text(Some("Toggle favorite"));
+
+        let refresh_button = gtk::Button::from_icon_name("view-refresh-symbolic");
+        refresh_button.set_tooltip_text(Some("Refresh workflows"));
+        refresh_button.add_css_class("flat");
+
+        let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        buttons_box.set_valign(gtk::Align::Center);
 
         let list_box = gtk::ListBox::new();
         list_box.add_css_class("boxed-list");
@@ -56,9 +68,12 @@ impl RepoDetailPane {
             repo: repo.clone(),
             client: client.clone(),
             workflows: workflows.clone(),
+            expanded_workflows: expanded_workflows.clone(),
             favorites_manager: favorites_manager.clone(),
             favorites: favorites.clone(),
             favorite_button: favorite_button.clone(),
+            refresh_button: refresh_button.clone(),
+            buttons_box: buttons_box.clone(),
             list_box: list_box.clone(),
             root: root.clone(),
         };
@@ -105,13 +120,9 @@ impl RepoDetailPane {
 
         header_box.append(&info_box);
 
-        // Right side: buttons
-        let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        buttons_box.set_valign(gtk::Align::Center);
-
-        let refresh_button = gtk::Button::from_icon_name("view-refresh-symbolic");
-        refresh_button.set_tooltip_text(Some("Refresh workflows"));
-        refresh_button.add_css_class("flat");
+        // Right side: buttons (use stored references)
+        let buttons_box = self.buttons_box.clone();
+        let refresh_button = self.refresh_button.clone();
         buttons_box.append(&refresh_button);
 
         let favorite_button = self.favorite_button.clone();
@@ -251,6 +262,10 @@ impl RepoDetailPane {
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
 
+        // Show loading spinner
+        self.show_loading(true);
+        let callback_refs = self.clone_for_callbacks();
+
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
 
@@ -260,6 +275,9 @@ impl RepoDetailPane {
         let repo_name_for_spawn = repo_name.clone();
 
         receiver.attach(None, move |result| {
+            // Hide loading spinner
+            callback_refs.show_loading(false);
+
             match result {
                 Ok(wf_list) => {
                     info!("Loaded {} workflows", wf_list.len());
@@ -334,6 +352,7 @@ impl RepoDetailPane {
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
+        let callback_refs = self.clone_for_callbacks();
 
         button.connect_clicked(move |_| {
             let client = client.clone();
@@ -341,6 +360,10 @@ impl RepoDetailPane {
             let owner = owner.clone();
             let repo_name = repo_name.clone();
             let list_box = list_box.clone();
+            let callback_refs = callback_refs.clone();
+
+            // Show loading spinner
+            callback_refs.show_loading(true);
 
             let (sender, receiver) = glib::MainContext::default()
                 .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -349,8 +372,12 @@ impl RepoDetailPane {
             let client_for_ui = client.clone();
             let owner_for_ui = owner.clone();
             let repo_name_for_ui = repo_name.clone();
+            let callback_refs_for_ui = callback_refs.clone();
 
             receiver.attach(None, move |result| {
+                // Hide loading spinner
+                callback_refs_for_ui.show_loading(false);
+
                 match result {
                     Ok(wf_list) => {
                         info!("Refreshed {} workflows", wf_list.len());
@@ -383,6 +410,105 @@ impl RepoDetailPane {
         // Workflows are now expanded in-place, no need to open a window
         // The row activation will be handled by the expander widget
     }
+
+    fn clone_for_callbacks(&self) -> CallbackRefs {
+        CallbackRefs {
+            refresh_button: self.refresh_button.clone(),
+            buttons_box: self.buttons_box.clone(),
+        }
+    }
+
+    fn show_loading(&self, loading: bool) {
+        let refresh_button = self.refresh_button.clone();
+        let buttons_box = self.buttons_box.clone();
+
+        glib::idle_add_local_once(move || {
+            if loading {
+                // Hide refresh button and add spinner
+                refresh_button.set_visible(false);
+
+                // Remove any existing spinner first
+                let mut child = buttons_box.first_child();
+                while let Some(widget) = child.as_ref() {
+                    let next = widget.next_sibling();
+                    if widget.widget_name().as_str() == "detail-spinner" {
+                        buttons_box.remove(widget);
+                    }
+                    child = next;
+                }
+
+                let spinner = gtk::Spinner::new();
+                spinner.start();
+                spinner.set_tooltip_text(Some("Loading workflows..."));
+                spinner.set_widget_name("detail-spinner");
+                spinner.set_size_request(24, 24);
+                buttons_box.prepend(&spinner);
+                spinner.set_visible(true);
+            } else {
+                // Remove spinner and show refresh button
+                let mut child = buttons_box.first_child();
+                while let Some(widget) = child.as_ref() {
+                    let next = widget.next_sibling();
+                    if widget.widget_name().as_str() == "detail-spinner" {
+                        buttons_box.remove(widget);
+                    }
+                    child = next;
+                }
+
+                refresh_button.set_visible(true);
+            }
+        });
+    }
+}
+
+// Helper struct for callback closures
+#[derive(Clone)]
+struct CallbackRefs {
+    refresh_button: gtk::Button,
+    buttons_box: gtk::Box,
+}
+
+impl CallbackRefs {
+    fn show_loading(&self, loading: bool) {
+        let refresh_button = self.refresh_button.clone();
+        let buttons_box = self.buttons_box.clone();
+
+        glib::idle_add_local_once(move || {
+            if loading {
+                refresh_button.set_visible(false);
+
+                // Remove any existing spinner first
+                let mut child = buttons_box.first_child();
+                while let Some(widget) = child.as_ref() {
+                    let next = widget.next_sibling();
+                    if widget.widget_name().as_str() == "detail-spinner" {
+                        buttons_box.remove(widget);
+                    }
+                    child = next;
+                }
+
+                let spinner = gtk::Spinner::new();
+                spinner.start();
+                spinner.set_tooltip_text(Some("Loading workflows..."));
+                spinner.set_widget_name("detail-spinner");
+                spinner.set_size_request(24, 24);
+                buttons_box.prepend(&spinner);
+                spinner.set_visible(true);
+            } else {
+                // Remove all spinners
+                let mut child = buttons_box.first_child();
+                while let Some(widget) = child.as_ref() {
+                    let next = widget.next_sibling();
+                    if widget.widget_name().as_str() == "detail-spinner" {
+                        buttons_box.remove(widget);
+                    }
+                    child = next;
+                }
+
+                refresh_button.set_visible(true);
+            }
+        });
+    }
 }
 
 async fn fetch_workflows(
@@ -400,6 +526,43 @@ fn update_workflows_list(
     owner: &str,
     repo: &str,
 ) {
+    use std::collections::HashSet;
+
+    // First, collect which workflows are currently expanded
+    let mut expanded_ids = HashSet::new();
+    let mut child = list_box.first_child();
+    while let Some(widget) = child.as_ref() {
+        let next_sibling = widget.next_sibling();
+
+        if let Ok(row) = widget.clone().downcast::<gtk::ListBoxRow>() {
+            // Try to find an expander in this row
+            if let Some(row_child) = row.child() {
+                if let Some(box_widget) = row_child.downcast_ref::<gtk::Box>() {
+                    let mut inner_child = box_widget.first_child();
+                    while let Some(widget) = inner_child.as_ref() {
+                        let next = widget.next_sibling();
+
+                        if let Some(expander) = widget.downcast_ref::<gtk::Expander>() {
+                            if expander.is_expanded() {
+                                // Extract workflow ID from widget name
+                                let name = expander.widget_name();
+                                let name_str = name.as_str();
+                                if let Some(id_str) = name_str.strip_prefix("workflow_") {
+                                    if let Ok(id) = id_str.parse::<i64>() {
+                                        expanded_ids.insert(id);
+                                    }
+                                }
+                            }
+                        }
+                        inner_child = next;
+                    }
+                }
+            }
+        }
+        child = next_sibling;
+    }
+
+    // Clear the list
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
@@ -422,7 +585,9 @@ fn update_workflows_list(
     }
 
     for workflow in workflows {
-        let expander_row = create_workflow_expander_row(workflow, client, owner, repo, false);
+        let should_expand = expanded_ids.contains(&workflow.id);
+        let expander_row =
+            create_workflow_expander_row(workflow, client, owner, repo, should_expand);
         list_box.append(&expander_row);
     }
 }

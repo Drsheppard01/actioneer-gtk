@@ -812,11 +812,11 @@ impl MainWindow {
 
                 // Create and add new spinner
                 let spinner = gtk::Spinner::new();
-                spinner.start();  // Start animation
+                spinner.start(); // Start animation
                 spinner.set_size_request(24, 24);
                 spinner.set_tooltip_text(Some("Loading repositories..."));
                 header.pack_start(&spinner);
-                spinner.set_visible(true);  // Ensure visible
+                spinner.set_visible(true); // Ensure visible
 
                 // Store reference
                 *spinner_ref.borrow_mut() = Some(spinner);
