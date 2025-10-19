@@ -1,8 +1,6 @@
 use super::detail_placeholder::schedule_status_page_update;
 use super::detail_view::RepoDetailPane;
-use super::sidebar::{
-    find_label_by_name, gather_workflow_status_counts, rebuild_repo_list, row_matches_query,
-};
+use super::sidebar::{find_label_by_name, rebuild_repo_list, row_matches_query};
 use crate::api::models::{RateLimitInfo, Repo};
 use crate::api::{GitHubClient, GitHubError};
 use crate::favorites::FavoritesManager;
@@ -20,7 +18,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tracing::{error, info, warn};
 
 // Import refactored modules
@@ -46,9 +44,8 @@ pub struct MainWindow {
     detail_stack: gtk::Stack,
     active_detail: Rc<RefCell<Option<RepoDetailPane>>>,
     background_refresh_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    handling_selection: Arc<Mutex<bool>>,
 }
-
-const ACTIONS_STATUS_TTL: Duration = Duration::from_secs(300);
 
 impl MainWindow {
     pub fn new(app: &adw::Application) -> Self {
@@ -114,6 +111,7 @@ impl MainWindow {
         let selected_repo_id = Arc::new(Mutex::new(None));
         let rate_limit_info = Arc::new(Mutex::new(None));
         let background_refresh_task = Arc::new(Mutex::new(None));
+        let handling_selection = Arc::new(Mutex::new(false));
 
         let main_window = Self {
             window: window.clone(),
@@ -134,6 +132,7 @@ impl MainWindow {
             detail_stack: detail_stack.clone(),
             active_detail: active_detail.clone(),
             background_refresh_task: background_refresh_task.clone(),
+            handling_selection: handling_selection.clone(),
         };
 
         main_window.build_ui();
@@ -415,7 +414,6 @@ impl MainWindow {
         }
 
         self.schedule_repo_list_refresh();
-        self.spawn_repo_status_tasks(repos);
         self.update_rate_limit_display(rate_info);
     }
 
@@ -447,120 +445,6 @@ impl MainWindow {
                 selected,
             );
         });
-    }
-
-    fn spawn_repo_status_tasks(&self, repos: Vec<Repo>) {
-        let client_arc = self.client.clone();
-        let actions_state = self.actions_states.clone();
-        let actions_checked_at = self.actions_checked_at.clone();
-        let workflow_state = self.workflow_counts.clone();
-        let this = self.clone();
-
-        // Clone client for tokio task
-        let client_opt = client_arc.lock().clone();
-
-        if let Some(client) = client_opt {
-            let (sender, receiver) =
-                glib::MainContext::default().channel::<()>(glib::Priority::default());
-            let this_ui = this.clone();
-
-            receiver.attach(None, move |_| {
-                this_ui.schedule_repo_list_refresh();
-                glib::ControlFlow::Break
-            });
-
-            // Run all status checks in parallel on tokio runtime
-            crate::runtime_handle().spawn(async move {
-                // Process repos in parallel using futures
-                use futures::stream::{self, StreamExt};
-
-                stream::iter(repos)
-                    .for_each_concurrent(5, |repo| {
-                        let client = client.clone();
-                        let actions_state = actions_state.clone();
-                        let actions_checked_at = actions_checked_at.clone();
-                        let workflow_state = workflow_state.clone();
-
-                        async move {
-                            let owner = repo.owner.login.clone();
-                            let repo_name = repo.name.clone();
-                            let repo_id = repo.id;
-
-                            let should_refresh_actions = {
-                                let current_state = {
-                                    let actions = actions_state.lock();
-                                    actions.get(&repo_id).copied()
-                                };
-
-                                let last_checked = {
-                                    let checked = actions_checked_at.lock();
-                                    checked.get(&repo_id).copied()
-                                };
-
-                                match (current_state, last_checked) {
-                                    (
-                                        Some(
-                                            RepoActionsState::Enabled | RepoActionsState::Disabled,
-                                        ),
-                                        Some(timestamp),
-                                    ) => timestamp.elapsed() >= ACTIONS_STATUS_TTL,
-                                    (
-                                        Some(
-                                            RepoActionsState::Enabled | RepoActionsState::Disabled,
-                                        ),
-                                        None,
-                                    ) => true,
-                                    (Some(RepoActionsState::Unknown), _) => true,
-                                    (None, _) => true,
-                                }
-                            };
-
-                            // Check actions enabled
-                            if should_refresh_actions {
-                                match client.is_actions_enabled(&owner, &repo_name).await {
-                                    Ok(enabled) => {
-                                        let mut actions = actions_state.lock();
-                                        actions.insert(
-                                            repo_id,
-                                            if enabled {
-                                                RepoActionsState::Enabled
-                                            } else {
-                                                RepoActionsState::Disabled
-                                            },
-                                        );
-
-                                        let mut checked = actions_checked_at.lock();
-                                        checked.insert(repo_id, Instant::now());
-                                    }
-                                    Err(err) => {
-                                        warn!(
-                                            "Failed to fetch actions status for {}/{}: {}",
-                                            owner, repo_name, err
-                                        );
-                                    }
-                                }
-                            }
-
-                            // Get workflow counts
-                            match gather_workflow_status_counts(&client, &owner, &repo_name).await {
-                                Ok(counts) => {
-                                    let mut workflows = workflow_state.lock();
-                                    workflows.insert(repo_id, counts);
-                                }
-                                Err(err) => {
-                                    warn!(
-                                        "Failed to fetch workflow status for {}/{}: {}",
-                                        owner, repo_name, err
-                                    );
-                                }
-                            }
-                        }
-                    })
-                    .await;
-
-                let _ = sender.send(());
-            });
-        }
     }
 
     fn observe_favorites(&self) {
@@ -716,26 +600,71 @@ impl MainWindow {
                     None => None,
                 };
 
-                window.handle_repo_selection(repo);
+                // Check if selection actually changed
+                let current_selection = *window.selected_repo_id.lock();
+                let new_selection = repo.as_ref().map(|r| r.id);
+
+                // Check if we're already handling a selection
+                if *window.handling_selection.lock() {
+                    info!("Already handling selection, ignoring signal");
+                    return;
+                }
+
+                info!(
+                    "Selection signal: current={:?}, new={:?}, repo={:?}",
+                    current_selection,
+                    new_selection,
+                    repo.as_ref().map(|r| r.full_name.as_str())
+                );
+
+                // Ignore transient deselection events if we have an active detail pane
+                // This happens during widget manipulation (stack remove/add)
+                if new_selection.is_none() && window.active_detail.borrow().is_some() {
+                    info!("Ignoring transient deselection (detail pane is active)");
+                    return;
+                }
+
+                if current_selection != new_selection {
+                    window.handle_repo_selection(repo);
+                }
             });
     }
 
     fn handle_repo_selection(&self, repo: Option<Repo>) {
+        *self.handling_selection.lock() = true;
+
         match repo {
             Some(repo) => {
+                info!("Handling repo selection: {}", repo.full_name);
                 *self.selected_repo_id.lock() = Some(repo.id);
                 self.start_background_refresh(repo.clone());
                 self.present_repo_detail(repo);
             }
             None => {
+                info!("Deselecting repo");
                 *self.selected_repo_id.lock() = None;
                 self.stop_background_refresh();
                 self.show_detail_placeholder();
             }
         }
+
+        *self.handling_selection.lock() = false;
     }
 
     fn present_repo_detail(&self, repo: Repo) {
+        info!("Creating detail pane for: {}", repo.full_name);
+
+        // Check if we already have a pane for this repo to avoid recreating
+        {
+            let active = self.active_detail.borrow();
+            if let Some(existing_pane) = active.as_ref() {
+                if existing_pane.repo().id == repo.id {
+                    info!("Pane already exists for this repo, skipping creation");
+                    return;
+                }
+            }
+        }
+
         let client_opt = {
             let guard = self.client.lock();
             guard.clone()

@@ -30,6 +30,7 @@ impl RepoDetailPane {
         favorites_manager: Option<Arc<FavoritesManager>>,
         favorites: Arc<Mutex<HashSet<i64>>>,
     ) -> Self {
+        info!("Creating RepoDetailPane for: {}", repo.full_name);
         let workflows = Arc::new(Mutex::new(Vec::new()));
 
         let favorite_button = gtk::ToggleButton::new();
@@ -67,6 +68,10 @@ impl RepoDetailPane {
 
     pub fn widget(&self) -> gtk::Widget {
         self.root.clone().upcast::<gtk::Widget>()
+    }
+
+    pub fn repo(&self) -> &Repo {
+        &self.repo
     }
 
     fn build_ui(&self) {
