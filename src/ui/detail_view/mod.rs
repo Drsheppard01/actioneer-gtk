@@ -547,8 +547,13 @@ fn update_workflows_list(
                                 // Extract workflow ID from widget name
                                 let name = expander.widget_name();
                                 let name_str = name.as_str();
+                                info!("Found expanded expander: {}", name_str);
                                 if let Some(id_str) = name_str.strip_prefix("workflow_") {
                                     if let Ok(id) = id_str.parse::<i64>() {
+                                        info!(
+                                            "  -> Will preserve expansion for workflow ID {}",
+                                            id
+                                        );
                                         expanded_ids.insert(id);
                                     }
                                 }
@@ -561,6 +566,8 @@ fn update_workflows_list(
         }
         child = next_sibling;
     }
+
+    info!("💾 Preserved {} expanded workflow(s)", expanded_ids.len());
 
     // Clear the list
     while let Some(child) = list_box.first_child() {

@@ -28,6 +28,9 @@ pub fn create_workflow_expander_row(
     expander.set_margin_start(12);
     expander.set_margin_end(12);
 
+    // Set widget name so we can identify this expander when checking expansion state
+    expander.set_widget_name(&format!("workflow_{}", workflow.id));
+
     // Content box for runs
     let runs_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     runs_box.set_margin_start(24);
