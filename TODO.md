@@ -34,7 +34,7 @@
 - [✅] Add "Re-run workflow" button (arrow.clockwise icon, orange) - only for completed runs
 - [✅] Add "Re-run failed jobs" button (arrow.triangle.2.circlepath icon, red) - only for failed runs
 - [✅] Add "Cancel run" button (stop.fill icon, red) - only for in-progress/queued runs
-- [ ] Implement confirmation dialogs for all destructive actions
+- [✅] Implement confirmation dialogs for all destructive actions
 - [✅] Call appropriate API endpoints (cancel, rerun, rerun-failed-jobs)
 
 ---
@@ -98,10 +98,11 @@
 ## 6. UI Polish
 
 ### 6.1 Visual Improvements
-- [ ] Add proper spacing between runs
+- [✅] Add proper spacing between runs
+- [✅] Improve vertical alignment of UI elements
 - [ ] Add subtle background for each run row
 - [ ] Improve expand/collapse animations
-- [ ] Add loading spinners for job fetching
+- [✅] Add loading spinners for job fetching
 - [ ] Polish button hover states
 
 ### 6.2 Workflow Trigger Feature
@@ -189,9 +190,9 @@
 - Expansion state preservation ✅
 - Automated tests ✅
 
-**Phase 2 - Additional Features:** 🚧 IN PROGRESS (1/8)
+**Phase 2 - Additional Features:** 🚧 IN PROGRESS (2/8)
 - Auto-refresh workflow functionality ✅
-- Confirmation dialogs (pending)
+- Confirmation dialogs ✅
 - Job summary badges (pending)
 - Workflow status badge (pending)
 - Trigger workflow button (pending)

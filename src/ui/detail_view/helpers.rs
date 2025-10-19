@@ -4,6 +4,7 @@ use crate::api::{GitHubClient, GitHubError};
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
+use libadwaita as adw;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::error;
@@ -14,6 +15,7 @@ pub fn create_workflow_expander_row(
     owner: &str,
     repo: &str,
     should_expand: bool,
+    parent_window: &adw::ApplicationWindow,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.set_activatable(false);
@@ -54,6 +56,7 @@ pub fn create_workflow_expander_row(
     let repo_name = repo.to_string();
     let workflow_id = workflow.id;
     let runs_box_clone = runs_box.clone();
+    let parent_window = parent_window.clone();
 
     expander.connect_expanded_notify(move |exp| {
         if !exp.is_expanded() {
@@ -71,6 +74,7 @@ pub fn create_workflow_expander_row(
                     repo_name.clone(),
                     workflow_id,
                     runs_box_clone.clone(),
+                    parent_window.clone(),
                 );
             }
         }
@@ -91,6 +95,7 @@ fn load_workflow_runs(
     repo: String,
     workflow_id: i64,
     runs_box: gtk::Box,
+    parent_window: adw::ApplicationWindow,
 ) {
     // Show loading indicator
     while let Some(child) = runs_box.first_child() {
@@ -110,6 +115,7 @@ fn load_workflow_runs(
     let client_for_spawn = client.clone();
     let owner_for_spawn = owner.clone();
     let repo_for_spawn = repo.clone();
+    let parent_window_clone = parent_window.clone();
 
     receiver.attach(None, move |result| {
         // Remove spinner
@@ -128,7 +134,7 @@ fn load_workflow_runs(
             }
             Ok(runs) => {
                 for run in runs.iter().take(10) {
-                    let run_row = create_run_expander_row(run, &client, &owner, &repo);
+                    let run_row = create_run_expander_row(run, &client, &owner, &repo, &parent_window_clone);
                     runs_box.append(&run_row);
                 }
             }
@@ -158,6 +164,7 @@ fn create_run_expander_row(
     client: &Arc<Mutex<GitHubClient>>,
     owner: &str,
     repo: &str,
+    parent_window: &adw::ApplicationWindow,
 ) -> gtk::Box {
     let run_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     run_box.set_margin_top(4);
@@ -167,30 +174,37 @@ fn create_run_expander_row(
     let row_container = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     row_container.set_margin_start(0);
     row_container.set_margin_end(0);
+    row_container.set_valign(gtk::Align::Center);
 
     // Expander for the run
     let run_title = format_run_title(run);
     let expander = gtk::Expander::new(Some(&run_title));
     expander.set_margin_start(0);
     expander.set_hexpand(true);
+    expander.set_valign(gtk::Align::Center);
 
     // Create custom label widget with status icon
     let label_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    label_box.set_valign(gtk::Align::Center);
 
     let status_icon = gtk::Image::from_icon_name(get_run_status_icon(run));
     status_icon.add_css_class(get_run_status_class(run));
+    status_icon.set_valign(gtk::Align::Center);
     label_box.append(&status_icon);
 
     let text_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    text_box.set_valign(gtk::Align::Center);
 
     let title_label = gtk::Label::new(Some(&run_title));
     title_label.set_halign(gtk::Align::Start);
+    title_label.set_valign(gtk::Align::Center);
     text_box.append(&title_label);
 
     let subtitle_label = gtk::Label::new(Some(&format_run_subtitle(run)));
     subtitle_label.add_css_class("dim-label");
     subtitle_label.add_css_class("caption");
     subtitle_label.set_halign(gtk::Align::Start);
+    subtitle_label.set_valign(gtk::Align::Center);
     text_box.append(&subtitle_label);
 
     label_box.append(&text_box);
@@ -201,6 +215,7 @@ fn create_run_expander_row(
     // Action buttons box
     let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     buttons_box.set_valign(gtk::Align::Center);
+    buttons_box.set_halign(gtk::Align::End);
 
     // Open in GitHub button
     if let Some(ref url) = run.html_url {
@@ -231,19 +246,43 @@ fn create_run_expander_row(
         let owner = owner.to_string();
         let repo_name = repo.to_string();
         let run_id = run.id;
+        let parent_window = parent_window.clone();
+        let run_title = format_run_title(run);
 
         rerun_btn.connect_clicked(move |btn| {
-            btn.set_sensitive(false);
+            // Show confirmation dialog
+            let dialog = gtk::MessageDialog::new(
+                Some(&parent_window),
+                gtk::DialogFlags::MODAL,
+                gtk::MessageType::Question,
+                gtk::ButtonsType::YesNo,
+                &format!("Do you want to re-run \"{}\"?", run_title),
+            );
+            dialog.set_title(Some("Re-run Workflow"));
+
+            let btn_clone = btn.clone();
             let client = client_clone.clone();
             let owner = owner.clone();
             let repo = repo_name.clone();
 
-            crate::runtime_handle().spawn(async move {
-                let client_guard = client.lock().clone();
-                if let Err(e) = client_guard.rerun_workflow(&owner, &repo, run_id).await {
-                    error!("Failed to re-run workflow: {}", e);
+            dialog.connect_response(move |dialog, response| {
+                dialog.close();
+                if response == gtk::ResponseType::Yes {
+                    btn_clone.set_sensitive(false);
+                    let client = client.clone();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+
+                    crate::runtime_handle().spawn(async move {
+                        let client_guard = client.lock().clone();
+                        if let Err(e) = client_guard.rerun_workflow(&owner, &repo, run_id).await {
+                            error!("Failed to re-run workflow: {}", e);
+                        }
+                    });
                 }
             });
+
+            dialog.present();
         });
 
         buttons_box.append(&rerun_btn);
@@ -261,19 +300,43 @@ fn create_run_expander_row(
         let owner = owner.to_string();
         let repo_name = repo.to_string();
         let run_id = run.id;
+        let parent_window = parent_window.clone();
+        let run_title = format_run_title(run);
 
         rerun_failed_btn.connect_clicked(move |btn| {
-            btn.set_sensitive(false);
+            // Show confirmation dialog
+            let dialog = gtk::MessageDialog::new(
+                Some(&parent_window),
+                gtk::DialogFlags::MODAL,
+                gtk::MessageType::Warning,
+                gtk::ButtonsType::YesNo,
+                &format!("Do you want to re-run all failed jobs in \"{}\"?", run_title),
+            );
+            dialog.set_title(Some("Re-run Failed Jobs"));
+
+            let btn_clone = btn.clone();
             let client = client_clone.clone();
             let owner = owner.clone();
             let repo = repo_name.clone();
 
-            crate::runtime_handle().spawn(async move {
-                let client_guard = client.lock().clone();
-                if let Err(e) = client_guard.rerun_failed_jobs(&owner, &repo, run_id).await {
-                    error!("Failed to re-run failed jobs: {}", e);
+            dialog.connect_response(move |dialog, response| {
+                dialog.close();
+                if response == gtk::ResponseType::Yes {
+                    btn_clone.set_sensitive(false);
+                    let client = client.clone();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+
+                    crate::runtime_handle().spawn(async move {
+                        let client_guard = client.lock().clone();
+                        if let Err(e) = client_guard.rerun_failed_jobs(&owner, &repo, run_id).await {
+                            error!("Failed to re-run failed jobs: {}", e);
+                        }
+                    });
                 }
             });
+
+            dialog.present();
         });
 
         buttons_box.append(&rerun_failed_btn);
@@ -291,19 +354,43 @@ fn create_run_expander_row(
         let owner = owner.to_string();
         let repo_name = repo.to_string();
         let run_id = run.id;
+        let parent_window = parent_window.clone();
+        let run_title = format_run_title(run);
 
         cancel_btn.connect_clicked(move |btn| {
-            btn.set_sensitive(false);
+            // Show confirmation dialog
+            let dialog = gtk::MessageDialog::new(
+                Some(&parent_window),
+                gtk::DialogFlags::MODAL,
+                gtk::MessageType::Warning,
+                gtk::ButtonsType::YesNo,
+                &format!("Do you want to cancel the in-progress run \"{}\"?\n\nThis action cannot be undone.", run_title),
+            );
+            dialog.set_title(Some("Cancel Workflow Run"));
+
+            let btn_clone = btn.clone();
             let client = client_clone.clone();
             let owner = owner.clone();
             let repo = repo_name.clone();
 
-            crate::runtime_handle().spawn(async move {
-                let client_guard = client.lock().clone();
-                if let Err(e) = client_guard.cancel_run(&owner, &repo, run_id).await {
-                    error!("Failed to cancel run: {}", e);
+            dialog.connect_response(move |dialog, response| {
+                dialog.close();
+                if response == gtk::ResponseType::Yes {
+                    btn_clone.set_sensitive(false);
+                    let client = client.clone();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+
+                    crate::runtime_handle().spawn(async move {
+                        let client_guard = client.lock().clone();
+                        if let Err(e) = client_guard.cancel_run(&owner, &repo, run_id).await {
+                            error!("Failed to cancel run: {}", e);
+                        }
+                    });
                 }
             });
+
+            dialog.present();
         });
 
         buttons_box.append(&cancel_btn);
@@ -414,19 +501,23 @@ fn create_job_row(job: &Job) -> gtk::Box {
     let job_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     job_box.set_margin_top(4);
     job_box.set_margin_bottom(4);
+    job_box.set_valign(gtk::Align::Center);
 
     let icon = gtk::Image::from_icon_name(get_job_status_icon(job));
     icon.add_css_class(get_job_status_class(job));
+    icon.set_valign(gtk::Align::Center);
     job_box.append(&icon);
 
     let job_name_label = gtk::Label::new(Some(job.name.as_deref().unwrap_or("Unnamed job")));
     job_name_label.set_halign(gtk::Align::Start);
     job_name_label.set_hexpand(true);
+    job_name_label.set_valign(gtk::Align::Center);
     job_box.append(&job_name_label);
 
     let status_label = gtk::Label::new(Some(&format_job_status(job)));
     status_label.add_css_class("dim-label");
     status_label.add_css_class("caption");
+    status_label.set_valign(gtk::Align::Center);
     job_box.append(&status_label);
 
     // Open in GitHub button
@@ -435,6 +526,7 @@ fn create_job_row(job: &Job) -> gtk::Box {
         open_btn.set_tooltip_text(Some("Open job in GitHub"));
         open_btn.add_css_class("flat");
         open_btn.add_css_class("circular");
+        open_btn.set_valign(gtk::Align::Center);
 
         let url_clone = url.clone();
         open_btn.connect_clicked(move |_| {

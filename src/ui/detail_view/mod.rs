@@ -261,6 +261,7 @@ impl RepoDetailPane {
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
+        let parent_window = self.parent.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -282,7 +283,7 @@ impl RepoDetailPane {
                 Ok(wf_list) => {
                     info!("Loaded {} workflows", wf_list.len());
                     *workflows.lock() = wf_list.clone();
-                    update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name);
+                    update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name, &parent_window);
                 }
                 Err(e) => {
                     error!("Failed to load workflows: {}", e);
@@ -306,6 +307,7 @@ impl RepoDetailPane {
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
+        let parent_window = self.parent.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -323,7 +325,7 @@ impl RepoDetailPane {
                     if workflows_differ(&current, &wf_list) {
                         info!("Silent refresh detected workflow changes");
                         *workflows.lock() = wf_list.clone();
-                        update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name);
+                        update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name, &parent_window);
                     }
                 }
                 Err(e) => {
@@ -353,6 +355,7 @@ impl RepoDetailPane {
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
         let callback_refs = self.clone_for_callbacks();
+        let parent_window = self.parent.clone();
 
         button.connect_clicked(move |_| {
             let client = client.clone();
@@ -361,6 +364,7 @@ impl RepoDetailPane {
             let repo_name = repo_name.clone();
             let list_box = list_box.clone();
             let callback_refs = callback_refs.clone();
+            let parent_window = parent_window.clone();
 
             // Show loading spinner
             callback_refs.show_loading(true);
@@ -373,6 +377,7 @@ impl RepoDetailPane {
             let owner_for_ui = owner.clone();
             let repo_name_for_ui = repo_name.clone();
             let callback_refs_for_ui = callback_refs.clone();
+            let parent_window_for_ui = parent_window.clone();
 
             receiver.attach(None, move |result| {
                 // Hide loading spinner
@@ -388,6 +393,7 @@ impl RepoDetailPane {
                             &client_for_ui,
                             &owner_for_ui,
                             &repo_name_for_ui,
+                            &parent_window_for_ui,
                         );
                     }
                     Err(e) => {
@@ -525,6 +531,7 @@ fn update_workflows_list(
     client: &Arc<Mutex<GitHubClient>>,
     owner: &str,
     repo: &str,
+    parent_window: &adw::ApplicationWindow,
 ) {
     use std::collections::HashSet;
 
@@ -594,7 +601,7 @@ fn update_workflows_list(
     for workflow in workflows {
         let should_expand = expanded_ids.contains(&workflow.id);
         let expander_row =
-            create_workflow_expander_row(workflow, client, owner, repo, should_expand);
+            create_workflow_expander_row(workflow, client, owner, repo, should_expand, parent_window);
         list_box.append(&expander_row);
     }
 }
