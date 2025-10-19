@@ -58,8 +58,17 @@ pub fn create_workflow_expander_row(
     let runs_box_clone = runs_box.clone();
     let parent_window = parent_window.clone();
 
+    // Track if we're programmatically expanding (to avoid triggering load)
+    let is_programmatic_expand = std::rc::Rc::new(std::cell::Cell::new(false));
+    let is_programmatic_for_signal = is_programmatic_expand.clone();
+
     expander.connect_expanded_notify(move |exp| {
         if !exp.is_expanded() {
+            return;
+        }
+
+        // Skip if this is a programmatic expansion (restoration)
+        if is_programmatic_for_signal.get() {
             return;
         }
 
@@ -80,9 +89,11 @@ pub fn create_workflow_expander_row(
         }
     });
 
-    // Expand if it was previously expanded
+    // Expand if it was previously expanded (programmatic - don't trigger load)
     if should_expand {
+        is_programmatic_expand.set(true);
         expander.set_expanded(true);
+        is_programmatic_expand.set(false);
     }
 
     row.set_child(Some(&main_box));
@@ -134,7 +145,8 @@ fn load_workflow_runs(
             }
             Ok(runs) => {
                 for run in runs.iter().take(10) {
-                    let run_row = create_run_expander_row(run, &client, &owner, &repo, &parent_window_clone);
+                    let run_row =
+                        create_run_expander_row(run, &client, &owner, &repo, &parent_window_clone);
                     runs_box.append(&run_row);
                 }
             }
@@ -256,7 +268,7 @@ fn create_run_expander_row(
                 gtk::DialogFlags::MODAL,
                 gtk::MessageType::Question,
                 gtk::ButtonsType::YesNo,
-                &format!("Do you want to re-run \"{}\"?", run_title),
+                format!("Do you want to re-run \"{}\"?", run_title),
             );
             dialog.set_title(Some("Re-run Workflow"));
 
@@ -310,7 +322,10 @@ fn create_run_expander_row(
                 gtk::DialogFlags::MODAL,
                 gtk::MessageType::Warning,
                 gtk::ButtonsType::YesNo,
-                &format!("Do you want to re-run all failed jobs in \"{}\"?", run_title),
+                format!(
+                    "Do you want to re-run all failed jobs in \"{}\"?",
+                    run_title
+                ),
             );
             dialog.set_title(Some("Re-run Failed Jobs"));
 
@@ -329,7 +344,8 @@ fn create_run_expander_row(
 
                     crate::runtime_handle().spawn(async move {
                         let client_guard = client.lock().clone();
-                        if let Err(e) = client_guard.rerun_failed_jobs(&owner, &repo, run_id).await {
+                        if let Err(e) = client_guard.rerun_failed_jobs(&owner, &repo, run_id).await
+                        {
                             error!("Failed to re-run failed jobs: {}", e);
                         }
                     });
@@ -364,7 +380,7 @@ fn create_run_expander_row(
                 gtk::DialogFlags::MODAL,
                 gtk::MessageType::Warning,
                 gtk::ButtonsType::YesNo,
-                &format!("Do you want to cancel the in-progress run \"{}\"?\n\nThis action cannot be undone.", run_title),
+                format!("Do you want to cancel the in-progress run \"{}\"?\n\nThis action cannot be undone.", run_title),
             );
             dialog.set_title(Some("Cancel Workflow Run"));
 

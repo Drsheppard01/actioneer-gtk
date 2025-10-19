@@ -137,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn test_preferences_default() {
         let prefs = Preferences::default();
-        assert_eq!(prefs.refresh_interval, 0);
+        assert_eq!(prefs.refresh_interval, 5); // Default 5 seconds to match macOS
         assert_eq!(prefs.window_width, 1000);
         assert!(prefs.enable_notifications);
     }

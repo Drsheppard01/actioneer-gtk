@@ -283,7 +283,14 @@ impl RepoDetailPane {
                 Ok(wf_list) => {
                     info!("Loaded {} workflows", wf_list.len());
                     *workflows.lock() = wf_list.clone();
-                    update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name, &parent_window);
+                    update_workflows_list(
+                        &list_box,
+                        &wf_list,
+                        &client,
+                        &owner,
+                        &repo_name,
+                        &parent_window,
+                    );
                 }
                 Err(e) => {
                     error!("Failed to load workflows: {}", e);
@@ -325,7 +332,14 @@ impl RepoDetailPane {
                     if workflows_differ(&current, &wf_list) {
                         info!("Silent refresh detected workflow changes");
                         *workflows.lock() = wf_list.clone();
-                        update_workflows_list(&list_box, &wf_list, &client, &owner, &repo_name, &parent_window);
+                        update_workflows_list(
+                            &list_box,
+                            &wf_list,
+                            &client,
+                            &owner,
+                            &repo_name,
+                            &parent_window,
+                        );
                     }
                 }
                 Err(e) => {
@@ -600,8 +614,14 @@ fn update_workflows_list(
 
     for workflow in workflows {
         let should_expand = expanded_ids.contains(&workflow.id);
-        let expander_row =
-            create_workflow_expander_row(workflow, client, owner, repo, should_expand, parent_window);
+        let expander_row = create_workflow_expander_row(
+            workflow,
+            client,
+            owner,
+            repo,
+            should_expand,
+            parent_window,
+        );
         list_box.append(&expander_row);
     }
 }
