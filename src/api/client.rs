@@ -42,8 +42,14 @@ impl GitHubClient {
     }
 
     pub async fn is_actions_enabled(&self, owner: &str, repo: &str) -> Result<bool, GitHubError> {
-        repos::is_actions_enabled(&self.client, &self.token, &self.response_handler, owner, repo)
-            .await
+        repos::is_actions_enabled(
+            &self.client,
+            &self.token,
+            &self.response_handler,
+            owner,
+            repo,
+        )
+        .await
     }
 
     // Workflow operations
@@ -52,8 +58,14 @@ impl GitHubClient {
         owner: &str,
         repo: &str,
     ) -> Result<Vec<Workflow>, GitHubError> {
-        workflows::list_workflows(&self.client, &self.token, &self.response_handler, owner, repo)
-            .await
+        workflows::list_workflows(
+            &self.client,
+            &self.token,
+            &self.response_handler,
+            owner,
+            repo,
+        )
+        .await
     }
 
     pub async fn dispatch_workflow(

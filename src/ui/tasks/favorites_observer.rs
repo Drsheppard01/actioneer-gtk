@@ -1,5 +1,6 @@
 /// Background task: Observe favorites changes
 use crate::favorites::FavoritesManager;
+use crate::ui::utils::MainContextChannelExt;
 use gtk4::glib;
 use parking_lot::Mutex;
 use std::collections::HashSet;
@@ -14,39 +15,37 @@ pub fn observe_favorites<F>(
 ) where
     F: Fn() + 'static,
 {
-    let receiver = manager.subscribe();
+    let mut receiver = manager.subscribe();
 
-    glib::MainContext::default().spawn_local(async move {
-        let mut receiver_local = receiver;
+    {
+        let initial = receiver.borrow().clone();
+        let mut favorites = favorites_state.lock();
+        *favorites = initial;
+    }
+    on_change();
 
+    let favorites_state_clone = favorites_state.clone();
+    let (sender, receiver_channel) =
+        glib::MainContext::default().channel::<HashSet<i64>>(glib::Priority::default());
+
+    receiver_channel.attach(None, move |latest| {
         {
-            let initial = receiver_local.borrow().clone();
-            let mut favorites = favorites_state.lock();
-            *favorites = initial;
+            let mut favorites = favorites_state_clone.lock();
+            *favorites = latest;
         }
         on_change();
+        glib::ControlFlow::Continue
+    });
 
+    crate::runtime_handle().spawn(async move {
         loop {
-            // Wrap receiver.changed() in tokio spawn since it needs tokio context
-            let changed_result = crate::runtime_handle()
-                .spawn(async move {
-                    let result = receiver_local.changed().await;
-                    (receiver_local, result)
-                })
-                .await
-                .unwrap();
-
-            receiver_local = changed_result.0;
-            if changed_result.1.is_err() {
+            if receiver.changed().await.is_err() {
                 break;
             }
 
-            let latest = receiver_local.borrow().clone();
-            {
-                let mut favorites = favorites_state.lock();
-                *favorites = latest.clone();
+            if sender.send(receiver.borrow().clone()).is_err() {
+                break;
             }
-            on_change();
         }
     });
 }

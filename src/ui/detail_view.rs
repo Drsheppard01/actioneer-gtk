@@ -1,12 +1,13 @@
-use crate::api::{GitHubClient, GitHubError};
 use crate::api::models::{Repo, Workflow};
+use crate::api::{GitHubClient, GitHubError};
 use crate::favorites::FavoritesManager;
+use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tracing::{error, info, warn};
 
 pub struct RepoDetailPane {
@@ -136,30 +137,38 @@ impl RepoDetailPane {
                 let manager = manager_for_toggle.clone();
                 let favorites_state = favorites_state.clone();
                 let button_clone = button.clone();
+                let (sender, receiver) = glib::MainContext::default()
+                    .channel::<Result<(), anyhow::Error>>(glib::Priority::default());
 
-                glib::MainContext::default().spawn_local(async move {
-                    // Run on tokio runtime
-                    let result = crate::runtime_handle().spawn(async move {
-                        if is_active {
-                            manager.add_favorite(repo_id).await
-                        } else {
-                            manager.remove_favorite(repo_id).await
+                receiver.attach(None, move |result| {
+                    match result {
+                        Ok(()) => {
+                            let mut favorites = favorites_state.lock();
+                            if is_active {
+                                favorites.insert(repo_id);
+                            } else {
+                                favorites.remove(&repo_id);
+                            }
                         }
-                    }).await.unwrap();
-
-                    if let Err(err) = result {
-                        warn!("Failed to update favorite {}: {}", repo_id, err);
-                        button_clone.set_active(!is_active);
-                        update_detail_favorite_button(&button_clone, !is_active);
-                        return;
+                        Err(err) => {
+                            warn!("Failed to update favorite {}: {}", repo_id, err);
+                            let revert_state = !is_active;
+                            button_clone.set_active(revert_state);
+                            update_detail_favorite_button(&button_clone, revert_state);
+                        }
                     }
 
-                    let mut favorites = favorites_state.lock();
-                    if is_active {
-                        favorites.insert(repo_id);
+                    glib::ControlFlow::Break
+                });
+
+                crate::runtime_handle().spawn(async move {
+                    let outcome = if is_active {
+                        manager.add_favorite(repo_id).await
                     } else {
-                        favorites.remove(&repo_id);
-                    }
+                        manager.remove_favorite(repo_id).await
+                    };
+
+                    let _ = sender.send(outcome);
                 });
             });
         } else {
@@ -174,28 +183,37 @@ impl RepoDetailPane {
             let button = self.favorite_button.clone();
             let repo_id = self.repo.id;
 
-            // Run watcher: spawn on tokio, but don't capture GTK widgets
-            glib::MainContext::default().spawn_local(async move {
+            let (sender, receiver_channel) =
+                glib::MainContext::default().channel::<bool>(glib::Priority::default());
+
+            receiver_channel.attach(None, move |is_favorite| {
+                if button.is_active() != is_favorite {
+                    button.set_active(is_favorite);
+                }
+                update_detail_favorite_button(&button, is_favorite);
+
+                glib::ControlFlow::Continue
+            });
+
+            crate::runtime_handle().spawn(async move {
                 let mut receiver_local = receiver;
+
+                if sender
+                    .send(receiver_local.borrow().contains(&repo_id))
+                    .is_err()
+                {
+                    return;
+                }
+
                 loop {
-                    // This await needs tokio context, so we wrap it
-                    let changed_result = crate::runtime_handle().spawn(async move {
-                        let result = receiver_local.changed().await;
-                        (receiver_local, result)
-                    }).await.unwrap();
-                    
-                    receiver_local = changed_result.0;
-                    if changed_result.1.is_err() {
+                    if receiver_local.changed().await.is_err() {
                         break;
                     }
-                    
-                    let snapshot = receiver_local.borrow().clone();
-                    let is_favorite = snapshot.contains(&repo_id);
 
-                    if button.is_active() != is_favorite {
-                        button.set_active(is_favorite);
+                    let is_favorite = receiver_local.borrow().contains(&repo_id);
+                    if sender.send(is_favorite).is_err() {
+                        break;
                     }
-                    update_detail_favorite_button(&button, is_favorite);
                 }
             });
         } else {
@@ -211,14 +229,10 @@ impl RepoDetailPane {
         let repo_name = self.repo.name.clone();
         let list_box = self.list_box.clone();
 
-        glib::MainContext::default().spawn_local(async move {
-            let client_clone = client.lock().clone();
-            
-            // Run HTTP call on tokio runtime
-            let result = crate::runtime_handle().spawn(async move {
-                fetch_workflows(&client_clone, &owner, &repo_name).await
-            }).await.unwrap();
-            
+        let (sender, receiver) = glib::MainContext::default()
+            .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
+
+        receiver.attach(None, move |result| {
             match result {
                 Ok(wf_list) => {
                     info!("Loaded {} workflows", wf_list.len());
@@ -229,6 +243,14 @@ impl RepoDetailPane {
                     error!("Failed to load workflows: {}", e);
                 }
             }
+
+            glib::ControlFlow::Break
+        });
+
+        crate::runtime_handle().spawn(async move {
+            let client_clone = client.lock().clone();
+            let result = fetch_workflows(&client_clone, &owner, &repo_name).await;
+            let _ = sender.send(result);
         });
     }
 
@@ -246,24 +268,30 @@ impl RepoDetailPane {
             let repo_name = repo_name.clone();
             let list_box = list_box.clone();
 
-            glib::MainContext::default().spawn_local(async move {
-                let client_clone = client.lock().clone();
-                
-                // Run HTTP call on tokio runtime
-                let result = crate::runtime_handle().spawn(async move {
-                    fetch_workflows(&client_clone, &owner, &repo_name).await
-                }).await.unwrap();
-                
+            let (sender, receiver) = glib::MainContext::default()
+                .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
+            let list_box_for_ui = list_box.clone();
+            let workflows_for_ui = workflows.clone();
+
+            receiver.attach(None, move |result| {
                 match result {
                     Ok(wf_list) => {
                         info!("Refreshed {} workflows", wf_list.len());
-                        *workflows.lock() = wf_list.clone();
-                        update_workflows_list(&list_box, &wf_list);
+                        *workflows_for_ui.lock() = wf_list.clone();
+                        update_workflows_list(&list_box_for_ui, &wf_list);
                     }
                     Err(e) => {
                         error!("Failed to refresh workflows: {}", e);
                     }
                 }
+
+                glib::ControlFlow::Break
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let client_clone = client.lock().clone();
+                let result = fetch_workflows(&client_clone, &owner, &repo_name).await;
+                let _ = sender.send(result);
             });
         });
     }
@@ -277,23 +305,20 @@ impl RepoDetailPane {
 
         list_box.connect_row_activated(move |_, row| {
             let index = row.index() as usize;
-            let workflows = workflows.clone();
-            let parent = parent.clone();
-            let client = client.clone();
-            let repo = repo.clone();
-
-            glib::MainContext::default().spawn_local(async move {
+            let workflow = {
                 let workflows_lock = workflows.lock();
-                if let Some(workflow) = workflows_lock.get(index) {
-                    let runs_window = super::workflow_runs_window::WorkflowRunsWindow::new(
-                        &parent,
-                        repo.clone(),
-                        workflow.clone(),
-                        client.clone(),
-                    );
-                    runs_window.present();
-                }
-            });
+                workflows_lock.get(index).cloned()
+            };
+
+            if let Some(workflow) = workflow {
+                let runs_window = super::workflow_runs_window::WorkflowRunsWindow::new(
+                    &parent,
+                    repo.clone(),
+                    workflow,
+                    client.clone(),
+                );
+                runs_window.present();
+            }
         });
     }
 }

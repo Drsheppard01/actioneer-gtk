@@ -1,11 +1,14 @@
 use crate::api::client::GitHubClient;
 use crate::api::models::{Repo, Workflow, WorkflowRun};
+use crate::api::GitHubError;
+use crate::runtime_handle;
+use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 use tracing::{error, info};
 
 pub struct WorkflowRunsWindow {
@@ -118,26 +121,36 @@ impl WorkflowRunsWindow {
         let workflow_id = self.workflow.id;
         let window = self.window.clone();
 
-        glib::MainContext::default().spawn_local(async move {
-            let client_lock = client.lock();
+        let (sender, receiver) = glib::MainContext::default()
+            .channel::<Result<Vec<WorkflowRun>, GitHubError>>(glib::Priority::default());
 
-            match client_lock.list_runs(&owner, &repo_name, workflow_id).await {
+        runtime_handle().spawn(async move {
+            let client = {
+                let guard = client.lock();
+                guard.clone()
+            };
+
+            let result = client.list_runs(&owner, &repo_name, workflow_id).await;
+            let _ = sender.send(result);
+        });
+
+        receiver.attach(None, move |result| {
+            match result {
                 Ok(runs_list) => {
                     info!("Loaded {} runs", runs_list.len());
-                    let runs_clone = runs_list.clone();
-                    *runs.lock() = runs_list;
+                    *runs.lock() = runs_list.clone();
 
-                    // Update UI
                     if let Some(content) = window.content() {
                         if let Ok(main_box) = content.downcast::<gtk::Box>() {
-                            find_and_update_runs_list(&main_box, &runs_clone);
+                            find_and_update_runs_list(&main_box, &runs_list);
                         }
                     }
                 }
-                Err(e) => {
-                    error!("Failed to load runs: {}", e);
+                Err(err) => {
+                    error!("Failed to load runs: {}", err);
                 }
             }
+            glib::ControlFlow::Break
         });
     }
 
@@ -149,27 +162,45 @@ impl WorkflowRunsWindow {
         let workflow_id = self.workflow.id;
         let list_box = list_box.clone();
 
-        button.connect_clicked(move |_| {
+        button.connect_clicked(move |btn| {
             let client = client.clone();
             let runs = runs.clone();
             let owner = owner.clone();
             let repo_name = repo_name.clone();
             let list = list_box.clone();
+            let button_ref = btn.clone();
+            let button_for_receiver = btn.clone();
 
-            glib::MainContext::default().spawn_local(async move {
-                let client_lock = client.lock();
+            button_ref.set_sensitive(false);
 
-                match client_lock.list_runs(&owner, &repo_name, workflow_id).await {
+            let (sender, receiver) =
+                glib::MainContext::default()
+                    .channel::<Result<Vec<WorkflowRun>, GitHubError>>(glib::Priority::default());
+
+            runtime_handle().spawn(async move {
+                let client = {
+                    let guard = client.lock();
+                    guard.clone()
+                };
+
+                let result = client.list_runs(&owner, &repo_name, workflow_id).await;
+                let _ = sender.send(result);
+            });
+
+            receiver.attach(None, move |result| {
+                button_for_receiver.set_sensitive(true);
+
+                match result {
                     Ok(runs_list) => {
                         info!("Refreshed {} runs", runs_list.len());
-                        let runs_clone = runs_list.clone();
-                        *runs.lock() = runs_list;
-                        update_runs_list(&list, &runs_clone);
+                        *runs.lock() = runs_list.clone();
+                        update_runs_list(&list, &runs_list);
                     }
-                    Err(e) => {
-                        error!("Failed to refresh runs: {}", e);
+                    Err(err) => {
+                        error!("Failed to refresh runs: {}", err);
                     }
                 }
+                glib::ControlFlow::Break
             });
         });
     }
@@ -182,23 +213,20 @@ impl WorkflowRunsWindow {
 
         list_box.connect_row_activated(move |_, row| {
             let index = row.index() as usize;
-            let runs = runs.clone();
-            let window = window.clone();
-            let client = client.clone();
-            let repo = repo.clone();
-
-            glib::MainContext::default().spawn_local(async move {
+            let run = {
                 let runs_lock = runs.lock();
-                if let Some(run) = runs_lock.get(index) {
-                    let jobs_window = super::run_jobs_window::RunJobsWindow::new(
-                        &window,
-                        repo.clone(),
-                        run.clone(),
-                        client.clone(),
-                    );
-                    jobs_window.present();
-                }
-            });
+                runs_lock.get(index).cloned()
+            };
+
+            if let Some(run) = run {
+                let jobs_window = super::run_jobs_window::RunJobsWindow::new(
+                    &window,
+                    repo.clone(),
+                    run,
+                    client.clone(),
+                );
+                jobs_window.present();
+            }
         });
     }
 

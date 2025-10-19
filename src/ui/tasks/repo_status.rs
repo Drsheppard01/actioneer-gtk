@@ -3,6 +3,7 @@ use super::super::state::{RepoActionsState, WorkflowStatusCounts};
 use crate::api::models::Repo;
 use crate::api::GitHubClient;
 use crate::ui::sidebar::gather_workflow_status_counts;
+use crate::ui::utils::MainContextChannelExt;
 use gtk4::glib;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -21,8 +22,17 @@ pub fn spawn_repo_status_tasks<F>(
 ) where
     F: FnOnce() + Send + 'static,
 {
-    // Run all status checks in parallel on tokio runtime
-    let handle = crate::runtime_handle().spawn(async move {
+    let (sender, receiver) = glib::MainContext::default().channel::<()>(glib::Priority::default());
+    let mut callback = Some(on_complete);
+
+    receiver.attach(None, move |_| {
+        if let Some(done) = callback.take() {
+            done();
+        }
+        glib::ControlFlow::Break
+    });
+
+    crate::runtime_handle().spawn(async move {
         use futures::stream::{self, StreamExt};
 
         stream::iter(repos)
@@ -73,11 +83,7 @@ pub fn spawn_repo_status_tasks<F>(
                 }
             })
             .await;
-    });
 
-    // Trigger callback once complete
-    glib::MainContext::default().spawn_local(async move {
-        let _ = handle.await;
-        on_complete();
+        let _ = sender.send(());
     });
 }

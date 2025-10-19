@@ -1,13 +1,15 @@
 use crate::api::models::Repo;
 use crate::favorites::FavoritesManager;
 use crate::ui::state::{RepoActionsState, WorkflowStatusCounts};
+use crate::ui::utils::MainContextChannelExt;
 use gtk::prelude::*;
 use gtk4::{self as gtk, glib};
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tracing::warn;
 
+#[allow(clippy::too_many_arguments)]
 pub fn rebuild_repo_list(
     list_box: gtk::ListBox,
     repos: Vec<Repo>,
@@ -189,27 +191,49 @@ fn build_repo_row(
         let favorites_arc = favorites_arc_for_update.clone();
         let favorites_manager = favorites_manager_for_update.clone();
 
-        glib::MainContext::default().spawn_local(async move {
+        if let Some(manager) = favorites_manager {
+            let button_clone = button.clone();
+            let (sender, receiver) = glib::MainContext::default()
+                .channel::<Result<(), anyhow::Error>>(glib::Priority::default());
 
-            if let Some(manager) = favorites_manager {
-                let result = if is_active {
+            receiver.attach(None, move |result| {
+                match result {
+                    Ok(()) => {
+                        let mut favorites = favorites_arc.lock();
+                        if is_active {
+                            favorites.insert(repo_id);
+                        } else {
+                            favorites.remove(&repo_id);
+                        }
+                    }
+                    Err(err) => {
+                        warn!("Failed to update favorite {}: {}", repo_id, err);
+                        let revert_state = !is_active;
+                        button_clone.set_active(revert_state);
+                        update_favorite_button_visual(&button_clone, revert_state);
+                    }
+                }
+
+                glib::ControlFlow::Break
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let outcome = if is_active {
                     manager.add_favorite(repo_id).await
                 } else {
                     manager.remove_favorite(repo_id).await
                 };
 
-                if let Err(err) = result {
-                    warn!("Failed to update favorite {}: {}", repo_id, err);
-                }
-            }
-
+                let _ = sender.send(outcome);
+            });
+        } else {
             let mut favorites = favorites_arc.lock();
             if is_active {
                 favorites.insert(repo_id);
             } else {
                 favorites.remove(&repo_id);
             }
-        });
+        }
     });
 
     wrapper.append(&favorite_button);
@@ -358,9 +382,9 @@ pub async fn gather_workflow_status_counts(
     repo: &str,
 ) -> Result<WorkflowStatusCounts, crate::api::GitHubError> {
     use crate::ui::utils::{is_run_active, is_run_failure};
-    
+
     let workflows = client.list_workflows(owner, repo).await?;
-    
+
     let mut active_count = 0;
     let mut failed_count = 0;
 

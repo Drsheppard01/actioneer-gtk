@@ -1,11 +1,12 @@
-use crate::api::client::GitHubClient;
 use crate::api::models::{Job, Repo, WorkflowRun};
+use crate::api::{GitHubClient, GitHubError};
+use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 use tracing::{error, info};
 
 pub struct RunJobsWindow {
@@ -143,16 +144,16 @@ impl RunJobsWindow {
         let run_id = self.run.id;
         let window = self.window.clone();
 
-        glib::MainContext::default().spawn_local(async move {
-            let client_lock = client.lock();
+        let (sender, receiver) = glib::MainContext::default()
+            .channel::<Result<Vec<Job>, GitHubError>>(glib::Priority::default());
 
-            match client_lock.list_jobs(&owner, &repo_name, run_id).await {
+        receiver.attach(None, move |result| {
+            match result {
                 Ok(jobs_list) => {
                     info!("Loaded {} jobs", jobs_list.len());
                     let jobs_clone = jobs_list.clone();
                     *jobs.lock() = jobs_list;
 
-                    // Update UI
                     if let Some(content) = window.content() {
                         if let Ok(main_box) = content.downcast::<gtk::Box>() {
                             find_and_update_jobs_list(&main_box, &jobs_clone);
@@ -163,6 +164,14 @@ impl RunJobsWindow {
                     error!("Failed to load jobs: {}", e);
                 }
             }
+
+            glib::ControlFlow::Break
+        });
+
+        crate::runtime_handle().spawn(async move {
+            let client_clone = client.lock().clone();
+            let result = client_clone.list_jobs(&owner, &repo_name, run_id).await;
+            let _ = sender.send(result);
         });
     }
 
@@ -181,20 +190,31 @@ impl RunJobsWindow {
             let repo_name = repo_name.clone();
             let list = list_box.clone();
 
-            glib::MainContext::default().spawn_local(async move {
-                let client_lock = client.lock();
+            let (sender, receiver) = glib::MainContext::default()
+                .channel::<Result<Vec<Job>, GitHubError>>(glib::Priority::default());
+            let jobs_for_ui = jobs.clone();
+            let list_for_ui = list.clone();
 
-                match client_lock.list_jobs(&owner, &repo_name, run_id).await {
+            receiver.attach(None, move |result| {
+                match result {
                     Ok(jobs_list) => {
                         info!("Refreshed {} jobs", jobs_list.len());
                         let jobs_clone = jobs_list.clone();
-                        *jobs.lock() = jobs_list;
-                        update_jobs_list(&list, &jobs_clone);
+                        *jobs_for_ui.lock() = jobs_list;
+                        update_jobs_list(&list_for_ui, &jobs_clone);
                     }
                     Err(e) => {
                         error!("Failed to refresh jobs: {}", e);
                     }
                 }
+
+                glib::ControlFlow::Break
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let client_clone = client.lock().clone();
+                let result = client_clone.list_jobs(&owner, &repo_name, run_id).await;
+                let _ = sender.send(result);
             });
         });
     }
@@ -211,13 +231,15 @@ impl RunJobsWindow {
             let owner = owner.clone();
             let repo_name = repo_name.clone();
             let window = window.clone();
+            let button_ref = btn.clone();
 
             btn.set_sensitive(false);
 
-            glib::MainContext::default().spawn_local(async move {
-                let client_lock = client.lock();
+            let (sender, receiver) = glib::MainContext::default()
+                .channel::<Result<(), GitHubError>>(glib::Priority::default());
 
-                match client_lock.cancel_run(&owner, &repo_name, run_id).await {
+            receiver.attach(None, move |result| {
+                match result {
                     Ok(_) => {
                         info!("Run cancelled successfully");
 
@@ -235,6 +257,7 @@ impl RunJobsWindow {
                     }
                     Err(e) => {
                         error!("Failed to cancel run: {}", e);
+                        button_ref.set_sensitive(true);
 
                         let dialog = gtk::MessageDialog::new(
                             Some(&window),
@@ -249,6 +272,14 @@ impl RunJobsWindow {
                         dialog.present();
                     }
                 }
+
+                glib::ControlFlow::Break
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let client_clone = client.lock().clone();
+                let result = client_clone.cancel_run(&owner, &repo_name, run_id).await;
+                let _ = sender.send(result);
             });
         });
     }
@@ -261,23 +292,20 @@ impl RunJobsWindow {
 
         list_box.connect_row_activated(move |_, row| {
             let index = row.index() as usize;
-            let jobs = jobs.clone();
-            let window = window.clone();
-            let client = client.clone();
-            let repo = repo.clone();
-
-            glib::MainContext::default().spawn_local(async move {
+            let job = {
                 let jobs_lock = jobs.lock();
-                if let Some(job) = jobs_lock.get(index) {
-                    let logs_window = super::job_logs_window::JobLogsWindow::new(
-                        &window,
-                        repo.clone(),
-                        job.clone(),
-                        client.clone(),
-                    );
-                    logs_window.present();
-                }
-            });
+                jobs_lock.get(index).cloned()
+            };
+
+            if let Some(job) = job {
+                let logs_window = super::job_logs_window::JobLogsWindow::new(
+                    &window,
+                    repo.clone(),
+                    job,
+                    client.clone(),
+                );
+                logs_window.present();
+            }
         });
     }
 

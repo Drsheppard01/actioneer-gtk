@@ -1,9 +1,9 @@
 mod error;
 mod http;
-mod repos;
-mod workflows;
-mod runs;
 mod jobs;
+mod repos;
+mod runs;
+mod workflows;
 
 pub mod client;
 pub mod models;

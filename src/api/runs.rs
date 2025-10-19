@@ -46,7 +46,7 @@ pub async fn rerun_workflow(
 
     let request = add_auth_header(request, token);
     let response = request.send().await?;
-    
+
     if response.status().is_success() {
         Ok(())
     } else {
@@ -74,7 +74,7 @@ pub async fn rerun_failed_jobs(
 
     let request = add_auth_header(request, token);
     let response = request.send().await?;
-    
+
     if response.status().is_success() {
         Ok(())
     } else {
@@ -94,7 +94,7 @@ pub async fn cancel_run(
     run_id: i64,
 ) -> Result<(), GitHubError> {
     use reqwest::StatusCode;
-    
+
     info!("Cancelling run {}", run_id);
 
     let request = client.post(format!(

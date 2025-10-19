@@ -1,13 +1,16 @@
 use super::detail_placeholder::schedule_status_page_update;
 use super::detail_view::RepoDetailPane;
-use super::sidebar::{find_label_by_name, gather_workflow_status_counts, rebuild_repo_list, row_matches_query};
-use crate::api::GitHubClient;
+use super::sidebar::{
+    find_label_by_name, gather_workflow_status_counts, rebuild_repo_list, row_matches_query,
+};
 use crate::api::models::{RateLimitInfo, Repo};
+use crate::api::{GitHubClient, GitHubError};
 use crate::favorites::FavoritesManager;
 use crate::preferences::PreferencesManager;
 use crate::storage::TokenStorage;
 use crate::ui::auth_window::AuthWindow;
 use crate::ui::preferences_window::PreferencesWindow;
+use crate::ui::utils::{update_rate_limit_label, MainContextChannelExt};
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
@@ -21,7 +24,6 @@ use tracing::{error, info, warn};
 
 // Import refactored modules
 use crate::ui::state::{RepoActionsState, WorkflowStatusCounts};
-use crate::ui::utils::update_rate_limit_label;
 
 #[derive(Clone)]
 pub struct MainWindow {
@@ -137,10 +139,19 @@ impl MainWindow {
             let favorites = self.favorites.clone();
             let manager = manager.clone();
 
-            glib::MainContext::default().spawn_local(async move {
-                let favorite_ids = manager.get_all().await;
-                let mut favorites_guard = favorites.lock();
+            let (sender, receiver) =
+                glib::MainContext::default().channel::<HashSet<i64>>(glib::Priority::default());
+            let favorites_clone = favorites.clone();
+
+            receiver.attach(None, move |favorite_ids| {
+                let mut favorites_guard = favorites_clone.lock();
                 *favorites_guard = favorite_ids;
+                glib::ControlFlow::Break
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let favorite_ids = manager.get_all().await;
+                let _ = sender.send(favorite_ids);
             });
         }
     }
@@ -229,9 +240,7 @@ impl MainWindow {
                     match client_result {
                         Ok(client) => {
                             let client_arc = self.client.clone();
-                            glib::MainContext::default().spawn_local(async move {
-                                *client_arc.lock() = Some(client);
-                            });
+                            *client_arc.lock() = Some(client);
                             self.load_repositories();
                         }
                         Err(e) => {
@@ -269,24 +278,36 @@ impl MainWindow {
                             let client_clone = client_arc.clone();
                             let this = this.clone();
 
-                            glib::MainContext::default().spawn_local(async move {
-                                *client_clone.lock() = Some(client.clone());
+                            {
+                                let mut client_guard = client_clone.lock();
+                                *client_guard = Some(client.clone());
+                            }
 
-                                // Load repositories - scoped guard
-                                let repos_result = {
-                                    client.list_repos().await
-                                };
-                                
+                            let (sender, receiver) = glib::MainContext::default().channel::<(
+                                Result<Vec<Repo>, GitHubError>,
+                                Option<RateLimitInfo>,
+                            )>(
+                                glib::Priority::default(),
+                            );
+                            let this_ui = this.clone();
+
+                            receiver.attach(None, move |(repos_result, rate_info)| {
                                 match repos_result {
                                     Ok(repos) => {
                                         info!("Loaded {} repositories after auth", repos.len());
-                                        let rate_info = client.rate_limit_info();
-                                        this.refresh_repository_view(repos, rate_info);
+                                        this_ui.refresh_repository_view(repos, rate_info);
                                     }
                                     Err(e) => {
                                         error!("Failed to load repositories: {}", e);
                                     }
                                 }
+                                glib::ControlFlow::Break
+                            });
+
+                            crate::runtime_handle().spawn(async move {
+                                let repos_result = client.list_repos().await;
+                                let rate_info = client.rate_limit_info();
+                                let _ = sender.send((repos_result, rate_info));
                             });
                         }
                     }
@@ -296,40 +317,44 @@ impl MainWindow {
     }
 
     fn load_repositories(&self) {
-        let client_arc = self.client.clone();
-        let this = self.clone();
+        let client_opt = {
+            let guard = self.client.lock();
+            guard.clone()
+        };
 
-        glib::MainContext::default().spawn_local(async move {
-            let client_opt = {
-                let guard = client_arc.lock();
-                guard.clone()
-            };
+        if let Some(client) = client_opt {
+            info!("Starting to load repositories...");
 
-            if let Some(client) = client_opt {
-                info!("Starting to load repositories...");
+            let (sender, receiver) =
+                glib::MainContext::default()
+                    .channel::<(Result<Vec<Repo>, GitHubError>, Option<RateLimitInfo>)>(
+                        glib::Priority::default(),
+                    );
+            let this = self.clone();
 
-                let client_for_request = client.clone();
-                let repos_result = crate::runtime_handle()
-                    .spawn(async move { client_for_request.list_repos().await })
-                    .await;
-
+            receiver.attach(None, move |(repos_result, rate_info)| {
                 match repos_result {
-                    Ok(Ok(repos)) => {
+                    Ok(repos) => {
                         info!("✅ Loaded {} repositories, updating UI", repos.len());
-                        let rate_info = client.rate_limit_info();
                         this.refresh_repository_view(repos, rate_info);
                     }
-                    Ok(Err(e)) => {
+                    Err(e) => {
                         error!("Failed to load repositories: {}", e);
                     }
-                    Err(join_err) => {
-                        error!("Repository load task failed: {}", join_err);
-                    }
                 }
-            } else {
-                error!("No client available to load repositories");
-            }
-        });
+
+                glib::ControlFlow::Break
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let repos_result = client.list_repos().await;
+                let rate_info = client.rate_limit_info();
+
+                let _ = sender.send((repos_result, rate_info));
+            });
+        } else {
+            error!("No client available to load repositories");
+        }
     }
 
     fn refresh_repository_view(&self, repos: Vec<Repo>, rate_info: Option<RateLimitInfo>) {
@@ -356,9 +381,7 @@ impl MainWindow {
             let mut counts = self.workflow_counts.lock();
             counts.retain(|repo_id, _| repos.iter().any(|repo| repo.id == *repo_id));
             for repo in &repos {
-                counts
-                    .entry(repo.id)
-                    .or_insert_with(WorkflowStatusCounts::default);
+                counts.entry(repo.id).or_default();
             }
         }
 
@@ -382,7 +405,7 @@ impl MainWindow {
         let favorites_snapshot = self.favorites.lock().clone();
         let actions_snapshot = self.actions_states.lock().clone();
         let workflow_snapshot = self.workflow_counts.lock().clone();
-        let selected = self.selected_repo_id.lock().clone();
+        let selected = *self.selected_repo_id.lock();
         let favorites_arc = self.favorites.clone();
         let favorites_manager = self.favorites_manager.clone();
         let list_box = self.repo_list.clone();
@@ -412,17 +435,26 @@ impl MainWindow {
         let client_opt = client_arc.lock().clone();
 
         if let Some(client) = client_opt {
+            let (sender, receiver) =
+                glib::MainContext::default().channel::<()>(glib::Priority::default());
+            let this_ui = this.clone();
+
+            receiver.attach(None, move |_| {
+                this_ui.schedule_repo_list_refresh();
+                glib::ControlFlow::Break
+            });
+
             // Run all status checks in parallel on tokio runtime
-            let handle = crate::runtime_handle().spawn(async move {
+            crate::runtime_handle().spawn(async move {
                 // Process repos in parallel using futures
                 use futures::stream::{self, StreamExt};
-                
+
                 stream::iter(repos)
                     .for_each_concurrent(5, |repo| {
                         let client = client.clone();
                         let actions_state = actions_state.clone();
                         let workflow_state = workflow_state.clone();
-                        
+
                         async move {
                             let owner = repo.owner.login.clone();
                             let repo_name = repo.name.clone();
@@ -465,12 +497,8 @@ impl MainWindow {
                         }
                     })
                     .await;
-            });
-            
-            // Refresh UI once after all status checks complete
-            glib::MainContext::default().spawn_local(async move {
-                let _ = handle.await;
-                this.schedule_repo_list_refresh();
+
+                let _ = sender.send(());
             });
         }
     }
@@ -481,34 +509,34 @@ impl MainWindow {
             let favorites_state = self.favorites.clone();
             let this = self.clone();
 
-            glib::MainContext::default().spawn_local(async move {
-                let mut receiver_local = receiver;
-                
+            let (sender, receiver_channel) =
+                glib::MainContext::default().channel::<HashSet<i64>>(glib::Priority::default());
+
+            receiver_channel.attach(None, move |latest| {
                 {
-                    let initial = receiver_local.borrow().clone();
                     let mut favorites = favorites_state.lock();
-                    *favorites = initial;
+                    *favorites = latest;
                 }
                 this.schedule_repo_list_refresh();
 
+                glib::ControlFlow::Continue
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let mut receiver_local = receiver;
+
+                if sender.send(receiver_local.borrow().clone()).is_err() {
+                    return;
+                }
+
                 loop {
-                    // Wrap receiver.changed() in tokio spawn since it needs tokio context
-                    let changed_result = crate::runtime_handle().spawn(async move {
-                        let result = receiver_local.changed().await;
-                        (receiver_local, result)
-                    }).await.unwrap();
-                    
-                    receiver_local = changed_result.0;
-                    if changed_result.1.is_err() {
+                    if receiver_local.changed().await.is_err() {
                         break;
                     }
-                    
-                    let latest = receiver_local.borrow().clone();
-                    {
-                        let mut favorites = favorites_state.lock();
-                        *favorites = latest.clone();
+
+                    if sender.send(receiver_local.borrow().clone()).is_err() {
+                        break;
                     }
-                    this.schedule_repo_list_refresh();
                 }
             });
         }
@@ -521,29 +549,36 @@ impl MainWindow {
         button.connect_clicked(move |_| {
             let client = client_arc.clone();
             let this = this.clone();
+            let client_clone = client.lock().clone();
 
-            glib::MainContext::default().spawn_local(async move {
-                let client_clone = client.lock().clone();
+            if let Some(github_client) = client_clone {
+                let (sender, receiver) =
+                    glib::MainContext::default()
+                        .channel::<(Result<Vec<Repo>, GitHubError>, Option<RateLimitInfo>)>(
+                            glib::Priority::default(),
+                        );
+                let this_ui = this.clone();
 
-                if let Some(github_client) = client_clone {
-                    let rate_info = github_client.rate_limit_info();
-                    
-                    // Run HTTP call on tokio runtime
-                    let repos_result = crate::runtime_handle().spawn(async move {
-                        github_client.list_repos().await
-                    }).await.unwrap();
-                    
+                receiver.attach(None, move |(repos_result, rate_info)| {
                     match repos_result {
                         Ok(new_repos) => {
                             info!("Refreshed {} repositories", new_repos.len());
-                            this.refresh_repository_view(new_repos, rate_info);
+                            this_ui.refresh_repository_view(new_repos, rate_info);
                         }
                         Err(e) => {
                             error!("Failed to refresh repositories: {}", e);
                         }
                     }
-                }
-            });
+
+                    glib::ControlFlow::Break
+                });
+
+                crate::runtime_handle().spawn(async move {
+                    let repos_result = github_client.list_repos().await;
+                    let rate_info = github_client.rate_limit_info();
+                    let _ = sender.send((repos_result, rate_info));
+                });
+            }
         });
     }
 
@@ -613,25 +648,23 @@ impl MainWindow {
                     .and_then(|child| find_label_by_name(&child, "repo-name-label"))
                     .map(|label| label.text().to_string());
 
-                glib::MainContext::default().spawn_local(async move {
-                    let repo = match repo_name {
-                        Some(name) => {
-                            let repos = window.repos.lock();
-                            repos.iter().find(|repo| repo.full_name == name).cloned()
-                        }
-                        None => None,
-                    };
+                let repo = match repo_name {
+                    Some(name) => {
+                        let repos = window.repos.lock();
+                        repos.iter().find(|repo| repo.full_name == name).cloned()
+                    }
+                    None => None,
+                };
 
-                    window.handle_repo_selection(repo).await;
-                });
+                window.handle_repo_selection(repo);
             });
     }
 
-    async fn handle_repo_selection(&self, repo: Option<Repo>) {
+    fn handle_repo_selection(&self, repo: Option<Repo>) {
         match repo {
             Some(repo) => {
                 *self.selected_repo_id.lock() = Some(repo.id);
-                self.present_repo_detail(repo).await;
+                self.present_repo_detail(repo);
             }
             None => {
                 *self.selected_repo_id.lock() = None;
@@ -640,7 +673,7 @@ impl MainWindow {
         }
     }
 
-    async fn present_repo_detail(&self, repo: Repo) {
+    fn present_repo_detail(&self, repo: Repo) {
         let client_opt = {
             let guard = self.client.lock();
             guard.clone()

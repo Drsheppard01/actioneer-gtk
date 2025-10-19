@@ -1,13 +1,26 @@
-use crate::auth::device::{poll_device_token, start_device_flow, AccessToken, DeviceFlowInfo};
+use crate::auth::device::{
+    poll_device_token, start_device_flow, AccessToken, AuthError, DeviceFlowInfo,
+};
 use crate::config::Config;
+use crate::runtime_handle;
 use crate::storage::TokenStorage;
+use crate::ui::utils::MainContextChannelExt;
+use glib::ControlFlow;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{error, info};
+
+enum AuthMessage {
+    FlowReady(DeviceFlowInfo),
+    FlowError(String),
+    PollSuccess(AccessToken),
+    PollError(String),
+}
 
 pub struct AuthWindow {
     window: adw::Window,
@@ -31,7 +44,7 @@ impl AuthWindow {
 
         let auth_window = Self {
             window: window.clone(),
-            device_info: device_info.clone(),
+            device_info,
         };
 
         auth_window.build_ui();
@@ -46,18 +59,15 @@ impl AuthWindow {
         content_box.set_margin_end(48);
         content_box.set_valign(gtk::Align::Center);
 
-        // Title
         let title = gtk::Label::new(Some("Sign in to GitHub"));
         title.add_css_class("title-1");
         content_box.append(&title);
 
-        // Status label
         let status_label = gtk::Label::new(Some("Initializing authentication..."));
         status_label.set_wrap(true);
         status_label.set_justify(gtk::Justification::Center);
         content_box.append(&status_label);
 
-        // User code display (hidden initially)
         let code_box = gtk::Box::new(gtk::Orientation::Vertical, 12);
         code_box.set_visible(false);
 
@@ -71,186 +81,192 @@ impl AuthWindow {
 
         content_box.append(&code_box);
 
-        // Open browser button
         let open_button = gtk::Button::with_label("Open GitHub in Browser");
         open_button.add_css_class("suggested-action");
         open_button.add_css_class("pill");
         open_button.set_visible(false);
         content_box.append(&open_button);
 
-        // Progress spinner
         let spinner = gtk::Spinner::new();
         spinner.set_visible(false);
         content_box.append(&spinner);
 
-        // Cancel button
         let cancel_button = gtk::Button::with_label("Cancel");
         content_box.append(&cancel_button);
 
         self.window.set_content(Some(&content_box));
 
-        // Clone references for closures
-        let window_clone = self.window.clone();
+        let device_info_for_open = self.device_info.clone();
+        open_button.connect_clicked(move |_| {
+            if let Some(info) = device_info_for_open.lock().clone() {
+                let _ = open::that(&info.verification_uri);
+            }
+        });
+
+        let cancel_window = self.window.clone();
+        cancel_button.connect_clicked(move |_| {
+            cancel_window.close();
+        });
+
         let device_info_clone = self.device_info.clone();
         let status_clone = status_label.clone();
         let code_box_clone = code_box.clone();
         let user_code_clone = user_code.clone();
         let open_button_clone = open_button.clone();
         let spinner_clone = spinner.clone();
+        let window_clone = self.window.clone();
 
-        // Start authentication flow when window is shown
         self.window.connect_show(move |_| {
-            let device_info = device_info_clone.clone();
-            let status = status_clone.clone();
-            let code_box = code_box_clone.clone();
-            let user_code = user_code_clone.clone();
-            let open_button = open_button_clone.clone();
-            let spinner = spinner_clone.clone();
-            let window = window_clone.clone();
+            *device_info_clone.lock() = None;
+            status_clone.set_text("Initializing authentication...");
+            code_box_clone.set_visible(false);
+            user_code_clone.set_text("");
+            open_button_clone.set_visible(false);
+            spinner_clone.stop();
+            spinner_clone.set_visible(false);
 
-            // Spawn in glib context (not tokio) to have access to GTK widgets
-            glib::MainContext::default().spawn_local(async move {
-                // Enter Tokio runtime context for HTTP calls
+            let (sender, receiver) =
+                glib::MainContext::default().channel::<AuthMessage>(glib::Priority::default());
 
-                match start_flow(&device_info, &status, &code_box, &user_code, &open_button).await {
-                    Ok(verification_uri) => {
-                        // Set up browser open button
-                        open_button.connect_clicked(move |_| {
-                            let _ = open::that(&verification_uri);
-                        });
+            let start_sender = sender.clone();
+            runtime_handle().spawn(async move {
+                info!("Starting device flow authentication");
+                let scopes = ["repo", "workflow"];
+                let message = match start_device_flow(Config::github_client_id(), &scopes).await {
+                    Ok(flow_info) => AuthMessage::FlowReady(flow_info),
+                    Err(err) => AuthMessage::FlowError(err.to_string()),
+                };
 
-                        // Start polling
+                if start_sender.send(message).is_err() {
+                    error!("Failed to deliver authentication flow result to UI");
+                }
+            });
+
+            let poll_sender = sender.clone();
+
+            receiver.attach(None, {
+                let device_info = device_info_clone.clone();
+                let status = status_clone.clone();
+                let code_box = code_box_clone.clone();
+                let user_code = user_code_clone.clone();
+                let open_button = open_button_clone.clone();
+                let spinner = spinner_clone.clone();
+                let window = window_clone.clone();
+
+                move |message| match message {
+                    AuthMessage::FlowReady(info) => {
+                        *device_info.lock() = Some(info.clone());
+                        user_code.set_text(&info.user_code);
+                        code_box.set_visible(true);
+                        open_button.set_visible(true);
                         spinner.set_visible(true);
                         spinner.start();
-                        status.set_text("Waiting for authorization...");
+                        status.set_text("Open GitHub in your browser and enter the code.");
 
-                        if let Err(e) = poll_for_token(&device_info, &window).await {
-                            error!("Polling failed: {}", e);
-                            status.set_text(&format!("Error: {}", e));
-                            spinner.stop();
-                            spinner.set_visible(false);
-                        }
+                        let poll_info = info.clone();
+                        let sender_for_polling = poll_sender.clone();
+
+                        runtime_handle().spawn(async move {
+                            let interval_secs = poll_info.interval.max(1) as u64;
+                            let interval = Duration::from_secs(interval_secs);
+                            let max_attempts =
+                                (poll_info.expires_in / poll_info.interval.max(1)).max(1) as usize;
+                            let mut attempts = 0usize;
+
+                            loop {
+                                if attempts >= max_attempts {
+                                    let _ = sender_for_polling.send(AuthMessage::PollError(
+                                        "Authentication timeout".into(),
+                                    ));
+                                    break;
+                                }
+
+                                tokio::time::sleep(interval).await;
+                                attempts += 1;
+
+                                match poll_device_token(
+                                    Config::github_client_id(),
+                                    &poll_info.device_code,
+                                )
+                                .await
+                                {
+                                    Ok(token) => {
+                                        info!("Authentication successful");
+                                        if sender_for_polling
+                                            .send(AuthMessage::PollSuccess(token))
+                                            .is_err()
+                                        {
+                                            error!(
+                                                "Failed to deliver authentication success to UI"
+                                            );
+                                        }
+                                        break;
+                                    }
+                                    Err(AuthError::AuthorizationPending) => continue,
+                                    Err(AuthError::SlowDown) => {
+                                        tokio::time::sleep(interval).await;
+                                    }
+                                    Err(AuthError::ExpiredToken) => {
+                                        let _ = sender_for_polling.send(AuthMessage::PollError(
+                                            "Authentication timeout".into(),
+                                        ));
+                                        break;
+                                    }
+                                    Err(AuthError::AccessDenied) => {
+                                        let _ = sender_for_polling
+                                            .send(AuthMessage::PollError("Access denied".into()));
+                                        break;
+                                    }
+                                    Err(AuthError::RequestFailed(err)) => {
+                                        let _ = sender_for_polling
+                                            .send(AuthMessage::PollError(err.to_string()));
+                                        break;
+                                    }
+                                    Err(AuthError::Unknown(err)) => {
+                                        let _ =
+                                            sender_for_polling.send(AuthMessage::PollError(err));
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+
+                        status.set_text("Waiting for authorization...");
+                        ControlFlow::Continue
                     }
-                    Err(e) => {
-                        error!("Failed to start device flow: {}", e);
-                        status.set_text(&format!("Error: {}", e));
+                    AuthMessage::FlowError(err) => {
+                        error!("Failed to start device flow: {}", err);
+                        status.set_text(&format!("Error: {}", err));
+                        spinner.stop();
+                        spinner.set_visible(false);
+                        ControlFlow::Break
+                    }
+                    AuthMessage::PollSuccess(token) => {
+                        spinner.stop();
+                        spinner.set_visible(false);
+                        match save_token_and_close(token, &window) {
+                            Ok(()) => status.set_text("Signed in successfully"),
+                            Err(err) => {
+                                error!("Failed to save token: {}", err);
+                                status.set_text(&format!("Error saving token: {}", err));
+                            }
+                        }
+                        ControlFlow::Break
+                    }
+                    AuthMessage::PollError(err) => {
+                        error!("Polling failed: {}", err);
+                        spinner.stop();
+                        spinner.set_visible(false);
+                        status.set_text(&format!("Error: {}", err));
+                        ControlFlow::Break
                     }
                 }
             });
-        });
-
-        // Cancel button handler
-        let window_for_cancel = self.window.clone();
-        cancel_button.connect_clicked(move |_| {
-            window_for_cancel.close();
         });
     }
 
     pub fn present(&self) {
         self.window.present();
-    }
-}
-
-async fn start_flow(
-    device_info: &Arc<Mutex<Option<DeviceFlowInfo>>>,
-    status_label: &gtk::Label,
-    code_box: &gtk::Box,
-    user_code_label: &gtk::Label,
-    open_button: &gtk::Button,
-) -> Result<String, Box<dyn std::error::Error>> {
-    info!("Starting device flow authentication");
-
-    let client_id = Config::github_client_id();
-    
-    // Wrap the HTTP call in tokio runtime context
-    let flow_info = crate::runtime_handle()
-        .spawn(async move {
-            start_device_flow(client_id, &["repo", "workflow"]).await
-        })
-        .await??;
-    
-    let verification_uri = flow_info.verification_uri.clone();
-
-    user_code_label.set_text(&flow_info.user_code);
-    code_box.set_visible(true);
-    open_button.set_visible(true);
-    status_label.set_text("Sign in to GitHub with the code above");
-
-    *device_info.lock() = Some(flow_info);
-
-    Ok(verification_uri)
-}
-
-async fn poll_for_token(
-    device_info: &Arc<Mutex<Option<DeviceFlowInfo>>>,
-    window: &adw::Window,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let info = device_info.lock();
-    let flow_info = info
-        .as_ref()
-        .ok_or("No device flow info available")?
-        .clone();
-    drop(info);
-
-    let interval = std::time::Duration::from_secs(flow_info.interval as u64);
-    let mut attempts = 0;
-    let max_attempts = (flow_info.expires_in / flow_info.interval) as usize;
-
-    loop {
-        if attempts >= max_attempts {
-            return Err("Authentication timeout".into());
-        }
-
-        // Wrap tokio operations in runtime context
-        crate::runtime_handle()
-            .spawn(async move {
-                tokio::time::sleep(interval).await;
-            })
-            .await?;
-        
-        attempts += 1;
-
-        let client_id = Config::github_client_id();
-        let device_code = flow_info.device_code.clone();
-        
-        // Wrap the HTTP call in tokio runtime context
-        let result = crate::runtime_handle()
-            .spawn(async move {
-                poll_device_token(client_id, &device_code).await
-            })
-            .await?;
-        
-        match result {
-            Ok(token) => {
-                info!("Authentication successful!");
-                save_token_and_close(token, window)?;
-                return Ok(());
-            }
-            Err(e) => {
-                use crate::auth::device::AuthError;
-                match e {
-                    AuthError::AuthorizationPending => {
-                        // Continue polling
-                        continue;
-                    }
-                    AuthError::SlowDown => {
-                        // Double the interval
-                        crate::runtime_handle()
-                            .spawn(async move {
-                                tokio::time::sleep(interval).await;
-                            })
-                            .await?;
-                        continue;
-                    }
-                    AuthError::ExpiredToken | AuthError::AccessDenied => {
-                        return Err(e.into());
-                    }
-                    _ => {
-                        return Err(e.into());
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -262,7 +278,6 @@ fn save_token_and_close(
     storage.save_token(&token.token)?;
     info!("Token saved successfully");
 
-    // Close the window
     window.close();
 
     Ok(())

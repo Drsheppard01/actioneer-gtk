@@ -139,6 +139,9 @@ mod tests {
     async fn test_favorites_get_all() {
         let manager = FavoritesManager::new().unwrap();
 
+        // Ensure a clean slate in case prior runs left persisted favorites
+        manager.clear_all().await.unwrap();
+
         manager.add_favorite(1).await.unwrap();
         manager.add_favorite(2).await.unwrap();
         manager.add_favorite(3).await.unwrap();

@@ -1,4 +1,6 @@
-use crate::preferences::PreferencesManager;
+use crate::preferences::{Preferences, PreferencesManager};
+use crate::runtime_handle;
+use crate::ui::utils::MainContextChannelExt;
 use gtk4::glib::Propagation;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -79,18 +81,26 @@ impl PreferencesWindow {
         let spin_clone = refresh_spin.clone();
         let notify_clone = notify_switch.clone();
         let sounds_clone = sounds_switch.clone();
-        glib::MainContext::default().spawn_local(async move {
+        let (sender, receiver) =
+            glib::MainContext::default().channel::<Preferences>(glib::Priority::default());
+
+        runtime_handle().spawn(async move {
             let prefs = manager_clone.get().await;
+            let _ = sender.send(prefs);
+        });
+
+        receiver.attach(None, move |prefs| {
             spin_clone.set_value((prefs.refresh_interval as f64) / 60.0);
             notify_clone.set_active(prefs.enable_notifications);
             sounds_clone.set_active(prefs.enable_sounds);
+            glib::ControlFlow::Break
         });
 
         let manager_for_spin = manager.clone();
         refresh_spin.connect_value_changed(move |spin| {
             let minutes = spin.value().max(0.0);
             let manager = manager_for_spin.clone();
-            glib::MainContext::default().spawn_local(async move {
+            runtime_handle().spawn(async move {
                 if let Err(err) = manager
                     .set_refresh_interval((minutes.round() as u64) * 60)
                     .await
@@ -103,7 +113,7 @@ impl PreferencesWindow {
         let manager_for_notify = manager.clone();
         notify_switch.connect_state_set(move |_, state| {
             let manager = manager_for_notify.clone();
-            glib::MainContext::default().spawn_local(async move {
+            runtime_handle().spawn(async move {
                 if let Err(err) = manager.set_notifications_enabled(state).await {
                     warn!("Failed to update notifications preference: {}", err);
                 }
@@ -114,7 +124,7 @@ impl PreferencesWindow {
         let manager_for_sounds = manager.clone();
         sounds_switch.connect_state_set(move |_, state| {
             let manager = manager_for_sounds.clone();
-            glib::MainContext::default().spawn_local(async move {
+            runtime_handle().spawn(async move {
                 if let Err(err) = manager.set_sounds_enabled(state).await {
                     warn!("Failed to update sound preference: {}", err);
                 }

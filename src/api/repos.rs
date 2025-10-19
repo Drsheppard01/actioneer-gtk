@@ -62,7 +62,7 @@ pub async fn is_actions_enabled(
 
     let request = add_auth_header(request, token);
     let response = request.send().await?;
-    
+
     let status = response.status();
     let headers = response.headers().clone();
     response_handler.update_rate_limit(&headers);

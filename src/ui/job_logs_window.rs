@@ -1,11 +1,12 @@
-use crate::api::client::GitHubClient;
 use crate::api::models::{Job, Repo};
+use crate::api::{GitHubClient, GitHubError};
+use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use libadwaita::prelude::*;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 use tracing::{error, info};
 
 pub struct JobLogsWindow {
@@ -113,14 +114,14 @@ impl JobLogsWindow {
         let job_id = self.job.id;
         let window = self.window.clone();
 
-        glib::MainContext::default().spawn_local(async move {
-            let client_lock = client.lock();
+        let (sender, receiver) = glib::MainContext::default()
+            .channel::<Result<String, GitHubError>>(glib::Priority::default());
 
-            match client_lock.get_job_logs(&owner, &repo_name, job_id).await {
+        receiver.attach(None, move |result| {
+            match result {
                 Ok(logs) => {
                     info!("Loaded logs ({} bytes)", logs.len());
 
-                    // Find the text view and update it
                     if let Some(content) = window.content() {
                         if let Ok(main_box) = content.downcast::<gtk::Box>() {
                             let mut child = main_box.first_child();
@@ -144,6 +145,14 @@ impl JobLogsWindow {
                     error!("Failed to load logs: {}", e);
                 }
             }
+
+            glib::ControlFlow::Break
+        });
+
+        crate::runtime_handle().spawn(async move {
+            let client_clone = client.lock().clone();
+            let result = client_clone.get_job_logs(&owner, &repo_name, job_id).await;
+            let _ = sender.send(result);
         });
     }
 
@@ -160,19 +169,29 @@ impl JobLogsWindow {
             let repo_name = repo_name.clone();
             let tv = text_view.clone();
 
-            glib::MainContext::default().spawn_local(async move {
-                let client_lock = client.lock();
+            let (sender, receiver) = glib::MainContext::default()
+                .channel::<Result<String, GitHubError>>(glib::Priority::default());
+            let tv_for_ui = tv.clone();
 
-                match client_lock.get_job_logs(&owner, &repo_name, job_id).await {
+            receiver.attach(None, move |result| {
+                match result {
                     Ok(logs) => {
                         info!("Refreshed logs ({} bytes)", logs.len());
-                        let buffer = tv.buffer();
+                        let buffer = tv_for_ui.buffer();
                         buffer.set_text(&logs);
                     }
                     Err(e) => {
                         error!("Failed to refresh logs: {}", e);
                     }
                 }
+
+                glib::ControlFlow::Break
+            });
+
+            crate::runtime_handle().spawn(async move {
+                let client_clone = client.lock().clone();
+                let result = client_clone.get_job_logs(&owner, &repo_name, job_id).await;
+                let _ = sender.send(result);
             });
         });
     }

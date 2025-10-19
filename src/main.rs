@@ -11,7 +11,7 @@ mod ui;
 use gtk4::prelude::*;
 use libadwaita as adw;
 use std::sync::OnceLock;
-use tokio::runtime::Handle;
+use tokio::runtime::{Builder, Handle};
 use tracing::info;
 use ui::MainWindow;
 
@@ -37,7 +37,10 @@ fn main() -> anyhow::Result<()> {
 
     // Start tokio runtime in background thread and keep it alive
     std::thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+        let rt = Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime");
         let handle = rt.handle().clone();
 
         // Store the handle globally

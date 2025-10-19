@@ -6,9 +6,8 @@ use gtk4::{self as gtk};
 /// Update rate limit label with current info
 pub fn update_rate_limit_label(label: &gtk::Label, info: Option<RateLimitInfo>) {
     if let Some(info) = info {
-        let reset_time = DateTime::from_timestamp(info.reset, 0)
-            .unwrap_or_else(|| Utc::now());
-        
+        let reset_time = DateTime::from_timestamp(info.reset, 0).unwrap_or_else(Utc::now);
+
         let now = Utc::now();
         let duration = reset_time.signed_duration_since(now);
 
