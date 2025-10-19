@@ -157,7 +157,15 @@ impl GitHubClient {
         repo: &str,
         job_id: i64,
     ) -> Result<String, GitHubError> {
-        jobs::get_job_logs(&self.client, &self.token, owner, repo, job_id).await
+        jobs::get_job_logs(
+            &self.client,
+            &self.token,
+            &self.response_handler,
+            owner,
+            repo,
+            job_id,
+        )
+        .await
     }
 }
 

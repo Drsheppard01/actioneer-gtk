@@ -15,14 +15,18 @@ pub async fn list_workflows(
 ) -> Result<Vec<Workflow>, GitHubError> {
     info!("Fetching workflows for {}/{}", owner, repo);
 
+    let cache_key = format!("GET /repos/{}/{}/actions/workflows", owner, repo);
     let request = client.get(format!(
         "{}/repos/{}/{}/actions/workflows",
         GITHUB_API_BASE, owner, repo
     ));
 
     let request = add_auth_header(request, token);
+    let request = response_handler.apply_cache_headers(request, Some(&cache_key));
     let response = request.send().await?;
-    let workflows_response: WorkflowsResponse = response_handler.handle_response(response).await?;
+    let workflows_response: WorkflowsResponse = response_handler
+        .handle_response(response, Some(&cache_key))
+        .await?;
     Ok(workflows_response.workflows)
 }
 

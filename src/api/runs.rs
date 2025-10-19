@@ -16,6 +16,10 @@ pub async fn list_runs(
 ) -> Result<Vec<WorkflowRun>, GitHubError> {
     info!("Fetching runs for workflow {}", workflow_id);
 
+    let cache_key = format!(
+        "GET /repos/{}/{}/actions/workflows/{}/runs?per_page=50",
+        owner, repo, workflow_id
+    );
     let request = client
         .get(format!(
             "{}/repos/{}/{}/actions/workflows/{}/runs",
@@ -24,8 +28,11 @@ pub async fn list_runs(
         .query(&[("per_page", "50")]);
 
     let request = add_auth_header(request, token);
+    let request = response_handler.apply_cache_headers(request, Some(&cache_key));
     let response = request.send().await?;
-    let runs_response: WorkflowRunsResponse = response_handler.handle_response(response).await?;
+    let runs_response: WorkflowRunsResponse = response_handler
+        .handle_response(response, Some(&cache_key))
+        .await?;
     Ok(runs_response.workflow_runs)
 }
 

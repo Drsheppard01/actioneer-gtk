@@ -26,9 +26,16 @@ pub async fn list_repos(
                 ("sort", "updated"),
             ]);
 
+        let cache_key = format!(
+            "GET /user/repos?page={}&per_page=100&affiliation=owner,collaborator,organization_member&sort=updated",
+            page
+        );
         let request = add_auth_header(request, token);
+        let request = response_handler.apply_cache_headers(request, Some(&cache_key));
         let response = request.send().await?;
-        let repos_page: Vec<Repo> = response_handler.handle_response(response).await?;
+        let repos_page: Vec<Repo> = response_handler
+            .handle_response(response, Some(&cache_key))
+            .await?;
         let count = repos_page.len();
         all_repos.extend(repos_page);
 
@@ -55,12 +62,14 @@ pub async fn is_actions_enabled(
 
     info!("Checking actions permissions for {}/{}", owner, repo);
 
+    let cache_key = format!("GET /repos/{}/{}/actions/permissions", owner, repo);
     let request = client.get(format!(
         "{}/repos/{}/{}/actions/permissions",
         GITHUB_API_BASE, owner, repo
     ));
 
     let request = add_auth_header(request, token);
+    let request = response_handler.apply_cache_headers(request, Some(&cache_key));
     let response = request.send().await?;
 
     let status = response.status();
@@ -74,8 +83,32 @@ pub async fn is_actions_enabled(
                 enabled: bool,
             }
 
-            let body = response.json::<PermissionsResponse>().await?;
+            let body_bytes = response.bytes().await?;
+            response_handler.store_cache_entry(&cache_key, &headers, &body_bytes);
+            let body = serde_json::from_slice::<PermissionsResponse>(body_bytes.as_ref()).map_err(
+                |error| {
+                    GitHubError::ApiError(format!(
+                        "Failed to parse permissions response: {}",
+                        error
+                    ))
+                },
+            )?;
             Ok(body.enabled)
+        }
+        StatusCode::NOT_MODIFIED => {
+            #[derive(serde::Deserialize)]
+            struct PermissionsResponse {
+                enabled: bool,
+            }
+
+            if let Some(cached) = response_handler.cached_json::<PermissionsResponse>(&cache_key)? {
+                Ok(cached.enabled)
+            } else {
+                warn!("Received 304 Not Modified for permissions without cached response");
+                Err(GitHubError::ApiError(
+                    "Permissions response cache miss".to_string(),
+                ))
+            }
         }
         StatusCode::NOT_FOUND | StatusCode::FORBIDDEN => {
             // Lack of access means we default to true to keep repo visible
