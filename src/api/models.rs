@@ -79,6 +79,232 @@ pub struct JobsResponse {
     pub jobs: Vec<Job>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct JobSummary {
+    pub queued: i32,
+    pub running: i32,
+    pub completed: i32,
+}
+
+impl JobSummary {
+    pub fn is_empty(&self) -> bool {
+        self.queued == 0 && self.running == 0 && self.completed == 0
+    }
+
+    pub fn from_jobs(jobs: &[Job]) -> Self {
+        let mut summary = Self::default();
+        for job in jobs {
+            if let Some(status) = &job.status {
+                match status.to_lowercase().as_str() {
+                    "queued" | "waiting" => summary.queued += 1,
+                    "in_progress" => summary.running += 1,
+                    "completed" => summary.completed += 1,
+                    _ => {}
+                }
+            }
+        }
+        summary
+    }
+}
+
+impl WorkflowRun {
+    /// Returns a human-readable status string
+    pub fn friendly_status(&self) -> String {
+        if let Some(status) = &self.status {
+            match status.to_lowercase().as_str() {
+                "queued" => "Queued".to_string(),
+                "in_progress" => "In Progress".to_string(),
+                "completed" => {
+                    if self.conclusion.is_some() {
+                        self.friendly_conclusion()
+                    } else {
+                        "Completed".to_string()
+                    }
+                }
+                "waiting" => "Waiting".to_string(),
+                "requested" => "Requested".to_string(),
+                "pending" => "Pending".to_string(),
+                _ => status.replace('_', " "),
+            }
+        } else {
+            "Unknown".to_string()
+        }
+    }
+
+    /// Returns a human-readable conclusion string
+    pub fn friendly_conclusion(&self) -> String {
+        if let Some(conclusion) = &self.conclusion {
+            match conclusion.to_lowercase().as_str() {
+                "success" => "Success".to_string(),
+                "failure" => "Failed".to_string(),
+                "cancelled" => "Cancelled".to_string(),
+                "skipped" => "Skipped".to_string(),
+                "timed_out" => "Timed Out".to_string(),
+                "action_required" => "Action Required".to_string(),
+                "neutral" => "Neutral".to_string(),
+                "stale" => "Stale".to_string(),
+                _ => conclusion.replace('_', " "),
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    /// Returns a relative time string like "2h ago", "Just now", etc.
+    pub fn relative_time_string(&self) -> String {
+        let timestamp = self
+            .run_started_at
+            .as_ref()
+            .or(self.created_at.as_ref())
+            .or(self.updated_at.as_ref());
+
+        if let Some(ts) = timestamp {
+            relative_time_from_iso(ts)
+        } else {
+            String::new()
+        }
+    }
+
+    /// Check if this run is currently active (in progress/queued)
+    pub fn is_active(&self) -> bool {
+        if let Some(status) = &self.status {
+            matches!(
+                status.to_lowercase().as_str(),
+                "queued" | "in_progress" | "waiting" | "requested" | "pending"
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Check if this run can be cancelled
+    pub fn is_cancellable(&self) -> bool {
+        if let Some(status) = &self.status {
+            matches!(
+                status.to_lowercase().as_str(),
+                "queued" | "in_progress" | "waiting"
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Check if this run can be re-run
+    pub fn is_rerunnable(&self) -> bool {
+        if let Some(status) = &self.status {
+            if status.to_lowercase() != "completed" {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        if let Some(conclusion) = &self.conclusion {
+            matches!(
+                conclusion.to_lowercase().as_str(),
+                "success" | "failure" | "cancelled"
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Check if this run has failed jobs (can re-run failed only)
+    pub fn has_failed_jobs(&self) -> bool {
+        if let Some(status) = &self.status {
+            if status.to_lowercase() != "completed" {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        if let Some(conclusion) = &self.conclusion {
+            conclusion.to_lowercase() == "failure"
+        } else {
+            false
+        }
+    }
+}
+
+/// Parse ISO 8601 timestamp and return relative time string
+fn relative_time_from_iso(iso_string: &str) -> String {
+    use chrono::{DateTime, Utc};
+
+    // Try parsing the ISO string
+    if let Ok(dt) = DateTime::parse_from_rfc3339(iso_string) {
+        let now = Utc::now();
+        let duration = now.signed_duration_since(dt.with_timezone(&Utc));
+
+        let seconds = duration.num_seconds();
+
+        if seconds < 60 {
+            "Just now".to_string()
+        } else if seconds < 3600 {
+            let minutes = seconds / 60;
+            format!("{}m ago", minutes)
+        } else if seconds < 86400 {
+            let hours = seconds / 3600;
+            format!("{}h ago", hours)
+        } else if seconds < 604800 {
+            let days = seconds / 86400;
+            if days == 1 {
+                "Yesterday".to_string()
+            } else {
+                format!("{}d ago", days)
+            }
+        } else {
+            // For older dates, use date formatting
+            dt.format("%b %d").to_string()
+        }
+    } else {
+        String::new()
+    }
+}
+
+impl Job {
+    /// Returns a human-readable status string
+    pub fn friendly_status(&self) -> String {
+        if let Some(status) = &self.status {
+            match status.to_lowercase().as_str() {
+                "queued" => "Queued".to_string(),
+                "in_progress" => "In Progress".to_string(),
+                "completed" => {
+                    if self.conclusion.is_some() {
+                        self.friendly_conclusion()
+                    } else {
+                        "Completed".to_string()
+                    }
+                }
+                "waiting" => "Waiting".to_string(),
+                "requested" => "Requested".to_string(),
+                "pending" => "Pending".to_string(),
+                _ => status.replace('_', " "),
+            }
+        } else {
+            "Unknown".to_string()
+        }
+    }
+
+    /// Returns a human-readable conclusion string
+    pub fn friendly_conclusion(&self) -> String {
+        if let Some(conclusion) = &self.conclusion {
+            match conclusion.to_lowercase().as_str() {
+                "success" => "Success".to_string(),
+                "failure" => "Failed".to_string(),
+                "cancelled" => "Cancelled".to_string(),
+                "skipped" => "Skipped".to_string(),
+                "timed_out" => "Timed Out".to_string(),
+                "action_required" => "Action Required".to_string(),
+                "neutral" => "Neutral".to_string(),
+                _ => conclusion.replace('_', " "),
+            }
+        } else {
+            String::new()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitInfo {
     pub limit: i64,
