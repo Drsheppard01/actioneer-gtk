@@ -13,6 +13,7 @@ pub fn create_workflow_expander_row(
     client: &Arc<Mutex<GitHubClient>>,
     owner: &str,
     repo: &str,
+    should_expand: bool,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.set_activatable(false);
@@ -71,6 +72,11 @@ pub fn create_workflow_expander_row(
             }
         }
     });
+
+    // Expand if it was previously expanded
+    if should_expand {
+        expander.set_expanded(true);
+    }
 
     row.set_child(Some(&main_box));
     row

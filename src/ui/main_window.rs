@@ -32,6 +32,9 @@ pub struct MainWindow {
     repo_list: gtk::ListBox,
     search_entry: gtk::SearchEntry,
     rate_limit_label: gtk::Label,
+    refresh_button: gtk::Button,
+    header_bar: adw::HeaderBar,
+    header_spinner: Rc<RefCell<Option<gtk::Spinner>>>,
     favorites_manager: Option<Arc<FavoritesManager>>,
     favorites: Arc<Mutex<HashSet<i64>>>,
     actions_states: Arc<Mutex<HashMap<i64, RepoActionsState>>>,
@@ -76,6 +79,12 @@ impl MainWindow {
         let rate_limit_label = gtk::Label::new(Some("Rate limit: –"));
         rate_limit_label.add_css_class("dim-label");
         rate_limit_label.add_css_class("caption");
+
+        let refresh_button = gtk::Button::from_icon_name("view-refresh-symbolic");
+        refresh_button.set_tooltip_text(Some("Refresh repositories"));
+
+        let header_bar = adw::HeaderBar::new();
+
         let detail_status_page = adw::StatusPage::builder()
             .title("Select a repository")
             .description(
@@ -112,6 +121,7 @@ impl MainWindow {
         let rate_limit_info = Arc::new(Mutex::new(None));
         let background_refresh_task = Arc::new(Mutex::new(None));
         let handling_selection = Arc::new(Mutex::new(false));
+        let header_spinner = Rc::new(RefCell::new(None));
 
         let main_window = Self {
             window: window.clone(),
@@ -120,6 +130,9 @@ impl MainWindow {
             repo_list: repo_list.clone(),
             search_entry: search_entry.clone(),
             rate_limit_label: rate_limit_label.clone(),
+            refresh_button: refresh_button.clone(),
+            header_bar: header_bar.clone(),
+            header_spinner: header_spinner.clone(),
             favorites_manager: favorites_manager.clone(),
             favorites: favorites.clone(),
             actions_states: actions_states.clone(),
@@ -165,10 +178,9 @@ impl MainWindow {
     }
 
     fn build_ui(&self) {
-        let header = adw::HeaderBar::new();
+        let header = self.header_bar.clone();
 
-        let refresh_button = gtk::Button::from_icon_name("view-refresh-symbolic");
-        refresh_button.set_tooltip_text(Some("Refresh repositories"));
+        let refresh_button = self.refresh_button.clone();
         header.pack_start(&refresh_button);
 
         let preferences_button = gtk::Button::from_icon_name("emblem-system-symbolic");
@@ -343,6 +355,9 @@ impl MainWindow {
         if let Some(client) = client_opt {
             info!("Starting to load repositories...");
 
+            // Show spinner in header
+            self.show_header_loading(true);
+
             let (sender, receiver) =
                 glib::MainContext::default()
                     .channel::<(Result<Vec<Repo>, GitHubError>, Option<RateLimitInfo>)>(
@@ -351,6 +366,9 @@ impl MainWindow {
             let this = self.clone();
 
             receiver.attach(None, move |(repos_result, rate_info)| {
+                // Hide spinner and show refresh button
+                this.show_header_loading(false);
+
                 match repos_result {
                     Ok(repos) => {
                         info!("✅ Loaded {} repositories, updating UI", repos.len());
@@ -358,6 +376,10 @@ impl MainWindow {
                     }
                     Err(e) => {
                         error!("Failed to load repositories: {}", e);
+                        // Still update rate limit even on error
+                        if let Some(info) = rate_info {
+                            this.update_rate_limit_display(Some(info));
+                        }
                     }
                 }
 
@@ -770,6 +792,48 @@ impl MainWindow {
         if let Some(handle) = self.background_refresh_task.lock().take() {
             handle.abort();
         }
+    }
+
+    fn show_header_loading(&self, loading: bool) {
+        let header = self.header_bar.clone();
+        let refresh_button = self.refresh_button.clone();
+        let spinner_ref = self.header_spinner.clone();
+
+        glib::idle_add_local_once(move || {
+            if loading {
+                info!("🔄 Showing header loading spinner");
+                // Hide refresh button
+                refresh_button.set_visible(false);
+
+                // Remove any existing spinner
+                if let Some(old_spinner) = spinner_ref.borrow_mut().take() {
+                    header.remove(&old_spinner);
+                }
+
+                // Create and add new spinner
+                let spinner = gtk::Spinner::new();
+                spinner.start();  // Start animation
+                spinner.set_size_request(24, 24);
+                spinner.set_tooltip_text(Some("Loading repositories..."));
+                header.pack_start(&spinner);
+                spinner.set_visible(true);  // Ensure visible
+
+                // Store reference
+                *spinner_ref.borrow_mut() = Some(spinner);
+            } else {
+                info!("✅ Hiding header loading spinner");
+                // Remove spinner if it exists
+                if let Some(spinner) = spinner_ref.borrow_mut().take() {
+                    info!("Removing spinner from header");
+                    header.remove(&spinner);
+                } else {
+                    warn!("No header spinner found to remove!");
+                }
+
+                // Show refresh button
+                refresh_button.set_visible(true);
+            }
+        });
     }
 
     pub fn present(&self) {

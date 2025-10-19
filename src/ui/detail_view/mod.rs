@@ -422,7 +422,7 @@ fn update_workflows_list(
     }
 
     for workflow in workflows {
-        let expander_row = create_workflow_expander_row(workflow, client, owner, repo);
+        let expander_row = create_workflow_expander_row(workflow, client, owner, repo, false);
         list_box.append(&expander_row);
     }
 }
