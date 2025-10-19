@@ -208,14 +208,14 @@ fn create_run_expander_row(
         open_btn.set_tooltip_text(Some("Open in GitHub"));
         open_btn.add_css_class("flat");
         open_btn.add_css_class("circular");
-        
+
         let url_clone = url.clone();
         open_btn.connect_clicked(move |_| {
             if let Err(e) = open::that(&url_clone) {
                 error!("Failed to open URL: {}", e);
             }
         });
-        
+
         buttons_box.append(&open_btn);
     }
 
@@ -435,14 +435,14 @@ fn create_job_row(job: &Job) -> gtk::Box {
         open_btn.set_tooltip_text(Some("Open job in GitHub"));
         open_btn.add_css_class("flat");
         open_btn.add_css_class("circular");
-        
+
         let url_clone = url.clone();
         open_btn.connect_clicked(move |_| {
             if let Err(e) = open::that(&url_clone) {
                 error!("Failed to open URL: {}", e);
             }
         });
-        
+
         job_box.append(&open_btn);
     }
 

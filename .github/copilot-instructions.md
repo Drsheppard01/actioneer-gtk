@@ -84,18 +84,42 @@ glib::MainContext::default().spawn_local(async move { /* refresh widgets */ });
   - System deps (Ubuntu/Debian): `sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config` (see `README.md`).
   - Build: `cargo build`; Run: `cargo run` (reads `.env` when provided).
   - Tests: `cargo test` (there are unit tests such as token storage lifecycle).
+  - UI tests: UI test harness has been added. Run `cargo test -- --ignored` to run the UI integration tests locally when a display is available. See the `tests/ui/README.md` for details on running in CI or headless.
   - Formatting & linting: `cargo fmt` and `cargo clippy -- -D warnings`. The project aims for zero warnings; a PR should not introduce warnings.
 
 - Project-specific conventions
   - Prefer `parking_lot::Mutex` for shared state; code frequently clones `Arc<Mutex<T>>` before spawning tasks.
   - UI changes must use `glib::idle_add_local_once` or `spawn_local` to ensure GTK safety.
   - Token/keyring interactions are tested at runtime in `token_storage.rs` — avoid destructive cleanup in tests that run on developer machines.
+  - New notes (2025-10): Recent changes added ETag caching for GET endpoints in `src/api/http.rs`. Agents should use the `ResponseHandler` for conditional requests by calling `apply_cache_headers` when building requests and passing the same cache key to `handle_response`. See `src/api/*` modules for examples.
+  - The sidebar width issue was fixed by wrapping the sidebar in an `adw::ClampScrollable` in `src/ui/main_window.rs` and configuring the `gtk::Paned` to keep the start child at its natural size. If you change the sidebar layout, keep `ClampScrollable` constraints in mind.
+  - Background refreshes skip redundant non-ETag endpoints: `spawn_repo_status_tasks` now tracks last-checked timestamps and avoids querying the actions-permissions endpoint more often than a TTL. If you need to force-refresh, clear the timestamps in `actions_checked_at`.
 
 - Files to reference when making changes
   - `src/main.rs` (runtime + app bootstrap)
   - `src/ui/main_window.rs` (primary UI patterns)
+  - `tests/ui/` (UI integration test harness)
   - `src/storage/token_storage.rs` (keyring usage)
   - `src/api/client.rs` and `src/api/models.rs` (API surface)
   - `README.md` (dev setup and system deps)
+
+UI testing guidance
+- UI tests live under `tests/ui/` and are marked ignored by default (they use the Rust test ignore attribute). This avoids running UI integration tests headless on CI without a display. They require an X11/Wayland display or a headless Xvfb/virtual framebuffer in CI.
+- To run locally with a display (Linux):
+
+```bash
+# Run unit tests
+cargo test
+
+# Run UI tests (ignored by default)
+cargo test -- --ignored
+```
+
+- In CI, prefer launching a headless X server or use a Docker container with a virtual framebuffer. See the `tests/ui/` directory or your CI workflow for example steps.
+
+Audit notes for agents
+- If you modify API code, ensure `ResponseHandler` rate limit updates and caching logic remain consistent. The handler stores ETags and cached bodies in-memory; persistence is intentionally not implemented to keep code simple.
+- There is a small TTL-based optimization around actions permissions checks: `src/ui/main_window.rs` tracks `actions_checked_at` to avoid calling the non-ETag permission endpoint too often. If you change the permission check path, ensure the TTL logic is respected.
+- When adding large async tasks, prefer `for_each_concurrent` with a concurrency cap (see `spawn_repo_status_tasks`) to avoid DoS and rate limit spikes.
 
 If anything here is unclear or you need examples for a particular change (adding endpoints, changing auth, updating a UI pane), tell me which area to expand and I will update this file accordingly.
