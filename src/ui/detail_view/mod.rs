@@ -314,7 +314,7 @@ impl RepoDetailPane {
                 Ok(wf_list) => {
                     info!("Loaded {} workflows", wf_list.len());
                     *workflows.lock() = wf_list.clone();
-                    
+
                     // Store workflows in cache
                     let cache_store = cache.clone();
                     let cache_key = format!("{}/{}", owner, repo_name);
@@ -322,7 +322,7 @@ impl RepoDetailPane {
                     crate::runtime_handle().spawn(async move {
                         cache_store.store_workflows(wf_list_cache, &cache_key).await;
                     });
-                    
+
                     update_workflows_list(
                         &list_box,
                         &wf_list,
@@ -343,14 +343,14 @@ impl RepoDetailPane {
 
         crate::runtime_handle().spawn(async move {
             let cache_key = format!("{}/{}", owner_for_spawn, repo_name_for_spawn);
-            
+
             // Try cache first
             if let Some(cached_workflows) = cache_for_spawn.workflows(&cache_key).await {
                 info!("Using cached workflows for {}", cache_key);
                 let _ = sender.send(Ok(cached_workflows));
                 return;
             }
-            
+
             // Cache miss - fetch from API
             let client_clone = client_for_spawn.lock().clone();
             let result =
@@ -572,12 +572,10 @@ impl RepoDetailPane {
             // Try to get current preferences
             let handle = crate::runtime_handle().clone();
             let prefs_mgr = prefs_mgr.clone();
-            
+
             // Spawn a task to get preferences (it's async)
-            handle.spawn(async move {
-                prefs_mgr.get().await.refresh_interval
-            });
-            
+            handle.spawn(async move { prefs_mgr.get().await.refresh_interval });
+
             // For now, use default while we wait
             5u64
         } else {
@@ -604,35 +602,32 @@ impl RepoDetailPane {
         );
 
         // Schedule periodic refresh
-        let source_id = glib::timeout_add_seconds_local(
-            refresh_interval_secs as u32,
-            move || {
-                // Check if there are any workflows with active runs
-                let has_active = {
-                    let active = workflows_with_active.lock();
-                    !active.is_empty()
-                };
+        let source_id = glib::timeout_add_seconds_local(refresh_interval_secs as u32, move || {
+            // Check if there are any workflows with active runs
+            let has_active = {
+                let active = workflows_with_active.lock();
+                !active.is_empty()
+            };
 
-                if !has_active {
-                    // No active runs, continue timer but skip refresh
-                    return glib::ControlFlow::Continue;
-                }
+            if !has_active {
+                // No active runs, continue timer but skip refresh
+                return glib::ControlFlow::Continue;
+            }
 
-                info!("Auto-refreshing workflows with active runs");
+            info!("Auto-refreshing workflows with active runs");
 
-                // Refresh expanded workflows that have active runs
-                Self::refresh_active_workflows(
-                    &list_box,
-                    &client,
-                    &owner,
-                    &repo_name,
-                    &parent_window,
-                    &workflows_with_active,
-                );
+            // Refresh expanded workflows that have active runs
+            Self::refresh_active_workflows(
+                &list_box,
+                &client,
+                &owner,
+                &repo_name,
+                &parent_window,
+                &workflows_with_active,
+            );
 
-                glib::ControlFlow::Continue
-            },
-        );
+            glib::ControlFlow::Continue
+        });
 
         *auto_refresh_source.lock() = Some(source_id);
     }
@@ -648,7 +643,7 @@ impl RepoDetailPane {
     ) {
         // Scan for workflows with active runs and update tracking set
         let mut found_active_ids = HashSet::new();
-        
+
         let mut child = list_box.first_child();
         while let Some(widget) = child.as_ref() {
             let next_sibling = widget.next_sibling();
@@ -665,18 +660,21 @@ impl RepoDetailPane {
                                 let name = expander.widget_name();
                                 let name_str = name.as_str();
                                 let has_active = name_str.ends_with("_ACTIVE");
-                                
+
                                 // Extract workflow ID (before _ACTIVE suffix if present)
                                 let base_name = name_str.trim_end_matches("_ACTIVE");
                                 if let Some(id_str) = base_name.strip_prefix("workflow_") {
                                     if let Ok(workflow_id) = id_str.parse::<i64>() {
                                         if has_active {
                                             found_active_ids.insert(workflow_id);
-                                            
+
                                             // Only refresh if expanded
                                             if expander.is_expanded() {
-                                                info!("Auto-refreshing active workflow {}", workflow_id);
-                                                
+                                                info!(
+                                                    "Auto-refreshing active workflow {}",
+                                                    workflow_id
+                                                );
+
                                                 // Trigger re-expansion to fetch fresh data
                                                 expander.set_expanded(false);
                                                 expander.set_expanded(true);
@@ -692,7 +690,7 @@ impl RepoDetailPane {
             }
             child = next_sibling;
         }
-        
+
         // Update the tracking set with current active workflows
         *workflows_with_active.lock() = found_active_ids;
     }

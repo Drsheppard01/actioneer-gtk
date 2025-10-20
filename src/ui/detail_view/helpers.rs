@@ -10,6 +10,18 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::{error, info};
 
+/// Parameters for loading jobs for a workflow run
+struct LoadJobsParams {
+    client: Arc<Mutex<GitHubClient>>,
+    owner: String,
+    repo: String,
+    run_id: i64,
+    jobs_box: gtk::Box,
+    badges_box: Option<gtk::Box>,
+    cache: Arc<DataCache>,
+    workflow_id: i64,
+}
+
 /// Parameters for loading workflow runs
 struct LoadRunsParams {
     client: Arc<Mutex<GitHubClient>>,
@@ -188,7 +200,7 @@ pub fn create_workflow_expander_row(
                     let result = client_guard
                         .dispatch_workflow(&owner, &repo, &workflow_id_str, &selected_branch, None)
                         .await;
-                    
+
                     match result {
                         Ok(_) => {
                             let _ = sender.send(Ok(selected_branch));
@@ -383,9 +395,11 @@ fn load_workflow_runs(params: LoadRunsParams) {
                 let cache_key = format!("{}/{}", owner, repo);
                 let runs_cache = runs.clone();
                 crate::runtime_handle().spawn(async move {
-                    cache_store.store_runs(runs_cache, &cache_key, workflow_id).await;
+                    cache_store
+                        .store_runs(runs_cache, &cache_key, workflow_id)
+                        .await;
                 });
-                
+
                 // Update workflow status badge based on most recent run
                 if let Some(ref badge) = status_badge {
                     if let Some(latest_run) = runs.first() {
@@ -395,13 +409,16 @@ fn load_workflow_runs(params: LoadRunsParams) {
 
                 // Check if any runs are active (in_progress, queued, waiting)
                 let has_active_runs = runs.iter().any(|run| {
-                    matches!(run.status.as_deref(), Some("in_progress") | Some("queued") | Some("waiting"))
+                    matches!(
+                        run.status.as_deref(),
+                        Some("in_progress") | Some("queued") | Some("waiting")
+                    )
                 });
 
                 // Store active status in expander's widget name with a marker
                 let widget_name = expander.widget_name();
                 let base_name = widget_name.as_str().trim_end_matches("_ACTIVE");
-                
+
                 if has_active_runs {
                     expander.set_widget_name(&format!("{}_ACTIVE", base_name));
                     info!("Workflow {} has active runs", workflow_id);
@@ -421,8 +438,15 @@ fn load_workflow_runs(params: LoadRunsParams) {
                 runs_box.append(&count_label);
 
                 for run in runs.iter().take(10) {
-                    let run_row =
-                        create_run_expander_row(run, &client, &owner, &repo, &parent_window_clone);
+                    let run_row = create_run_expander_row(
+                        run,
+                        &client,
+                        &owner,
+                        &repo,
+                        &parent_window_clone,
+                        &cache,
+                        workflow_id,
+                    );
                     runs_box.append(&run_row);
                 }
             }
@@ -488,14 +512,14 @@ fn load_workflow_runs(params: LoadRunsParams) {
 
     crate::runtime_handle().spawn(async move {
         let cache_key = format!("{}/{}", owner_for_spawn, repo_for_spawn);
-        
+
         // Try cache first
         if let Some(cached_runs) = cache_for_spawn.runs(&cache_key, workflow_id).await {
             info!("Using cached runs for workflow {}", workflow_id);
             let _ = sender.send(Ok(cached_runs));
             return;
         }
-        
+
         // Cache miss - fetch from API
         let client_guard = client_for_spawn.lock().clone();
         let result = client_guard
@@ -511,6 +535,8 @@ fn create_run_expander_row(
     owner: &str,
     repo: &str,
     parent_window: &adw::ApplicationWindow,
+    cache: &Arc<DataCache>,
+    workflow_id: i64,
 ) -> gtk::Box {
     let run_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     run_box.set_margin_top(4);
@@ -790,6 +816,7 @@ fn create_run_expander_row(
     let repo_name = repo.to_string();
     let run_id = run.id;
     let jobs_box_clone = jobs_box.clone();
+    let cache_clone = cache.clone();
 
     expander.connect_expanded_notify(move |exp| {
         if !exp.is_expanded() {
@@ -799,14 +826,16 @@ fn create_run_expander_row(
         let first_child = jobs_box_clone.first_child();
         if let Some(child) = first_child {
             if child.is::<gtk::Label>() {
-                load_run_jobs(
-                    client_clone.clone(),
-                    owner.clone(),
-                    repo_name.clone(),
+                load_run_jobs(LoadJobsParams {
+                    client: client_clone.clone(),
+                    owner: owner.clone(),
+                    repo: repo_name.clone(),
                     run_id,
-                    jobs_box_clone.clone(),
-                    Some(badges_box_for_load.clone()),
-                );
+                    jobs_box: jobs_box_clone.clone(),
+                    badges_box: Some(badges_box_for_load.clone()),
+                    cache: cache_clone.clone(),
+                    workflow_id,
+                });
             }
         }
     });
@@ -814,14 +843,18 @@ fn create_run_expander_row(
     run_box
 }
 
-fn load_run_jobs(
-    client: Arc<Mutex<GitHubClient>>,
-    owner: String,
-    repo: String,
-    run_id: i64,
-    jobs_box: gtk::Box,
-    badges_box: Option<gtk::Box>,
-) {
+fn load_run_jobs(params: LoadJobsParams) {
+    let LoadJobsParams {
+        client,
+        owner,
+        repo,
+        run_id,
+        jobs_box,
+        badges_box,
+        cache,
+        workflow_id,
+    } = params;
+
     // Show loading
     while let Some(child) = jobs_box.first_child() {
         jobs_box.remove(&child);
@@ -838,6 +871,11 @@ fn load_run_jobs(
     let client_for_retry = client.clone();
     let owner_for_retry = owner.clone();
     let repo_for_retry = repo.clone();
+    let cache_for_retry = cache.clone();
+
+    // Clone for storing jobs in cache
+    let owner_for_store = owner.clone();
+    let repo_for_store = repo.clone();
 
     receiver.attach(None, move |result| {
         while let Some(child) = jobs_box.first_child() {
@@ -852,6 +890,16 @@ fn load_run_jobs(
                 jobs_box.append(&label);
             }
             Ok(jobs) => {
+                // Store jobs in cache
+                let cache_store = cache_for_retry.clone();
+                let cache_key = format!("{}/{}", owner_for_store, repo_for_store);
+                let jobs_cache = jobs.clone();
+                crate::runtime_handle().spawn(async move {
+                    cache_store
+                        .store_jobs(jobs_cache, &cache_key, workflow_id, run_id)
+                        .await;
+                });
+
                 // Update badges with job summary
                 if let Some(ref badges) = badges_box {
                     update_job_summary_badges(badges, &jobs);
@@ -908,20 +956,23 @@ fn load_run_jobs(
                 let owner_retry = owner_for_retry.clone();
                 let repo_retry = repo_for_retry.clone();
                 let jobs_box_retry = jobs_box.clone();
+                let cache_retry = cache_for_retry.clone();
 
                 retry_button.connect_clicked(move |_| {
                     // Clear and reload
                     while let Some(child) = jobs_box_retry.first_child() {
                         jobs_box_retry.remove(&child);
                     }
-                    load_run_jobs(
-                        client_retry.clone(),
-                        owner_retry.clone(),
-                        repo_retry.clone(),
+                    load_run_jobs(LoadJobsParams {
+                        client: client_retry.clone(),
+                        owner: owner_retry.clone(),
+                        repo: repo_retry.clone(),
                         run_id,
-                        jobs_box_retry.clone(),
-                        None,
-                    );
+                        jobs_box: jobs_box_retry.clone(),
+                        badges_box: None,
+                        cache: cache_retry.clone(),
+                        workflow_id,
+                    });
                 });
 
                 error_box.append(&retry_button);
@@ -933,6 +984,16 @@ fn load_run_jobs(
     });
 
     crate::runtime_handle().spawn(async move {
+        let cache_key = format!("{}/{}", owner, repo);
+
+        // Try cache first
+        if let Some(cached_jobs) = cache.jobs(&cache_key, workflow_id, run_id).await {
+            info!("Using cached jobs for run {}", run_id);
+            let _ = sender.send(Ok(cached_jobs));
+            return;
+        }
+
+        // Cache miss - fetch from API
         let client_guard = client.lock().clone();
         let result = client_guard.list_jobs(&owner, &repo, run_id).await;
         let _ = sender.send(result);
