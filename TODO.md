@@ -29,6 +29,11 @@ All major features from the macOS app have been successfully implemented and tes
 - Comprehensive error handling ✅
 - Visual polish and UI improvements ✅
 
+**What's NOT done (from macOS comparison):**
+- 🔴 **Workflow completion notifications** - NotificationManager exists but not wired up
+- 🟡 "View logs" button in detail view job rows (logs window exists, just need to wire it)
+- ⚪ Minor polish items (time auto-update, expansion state preservation, etc.)
+
 ---
 
 ## 1. Workflow Run Display Features
@@ -205,6 +210,17 @@ All major features from the macOS app have been successfully implemented and tes
 - [✅] Show error states for failed API calls
 - [✅] Add retry mechanisms
 - [✅] Show user-friendly error messages
+
+### 8.3 Notifications (HIGH PRIORITY - Not Yet Implemented)
+- [✅] NotificationManager implementation (src/notifications.rs)
+- [✅] Desktop notification support via notify-rust
+- [✅] Conclusion text formatting (Success ✓, Failed ✗, etc.)
+- [ ] **Wire notifications to workflow completion detection**
+  - **Current status:** NotificationManager exists but not instantiated/used
+  - **Action needed:** Detect when workflow transitions to completed state
+  - **Action needed:** Call notify_workflow_completed() when workflows finish
+  - **File to modify:** src/ui/detail_view/mod.rs (auto-refresh logic)
+  - **macOS comparison:** macOS sends notifications when workflows complete
 
 ---
 
@@ -846,12 +862,108 @@ All major features from the macOS app are now implemented in the GTK Linux clien
 - ✅ Visual polish and UI improvements
 - ✅ Full caching integration (runs + jobs)
 
-**Remaining Optional Work:**
-- Enhanced job logs viewer (low priority - basic viewer is sufficient)
-- Job branch display (blocked - API may not provide branch per job)
+## Remaining Work Assessment (October 20, 2025)
 
-The project is ready for production use! 🎉
+**Status after macOS source comparison:**
+- Core feature parity: ✅ ACHIEVED
+- Missing: Workflow completion notifications (high value)
+- Missing: "View logs" button in detail view (medium value - logs window exists)
+
+### High Priority Items
+
+1. **Workflow Completion Notifications** (Section 8.3) 🔴
+   - [ ] Wire NotificationManager to detect and notify on workflow completion
+   - **Status:** Code exists in src/notifications.rs but not used
+   - **macOS has this:** Yes - NotificationManager.swift sends notifications
+   - **Action:** Track workflow state changes in auto-refresh, call notify_workflow_completed()
+   - **Estimated effort:** 30-60 minutes
+
+2. **View Logs Button in Detail View** (Section 2.2) 🟡
+   - [ ] Add "View logs" button for each job in detail view
+   - **Status:** job_logs_window.rs exists and works, just needs wiring
+   - **macOS has this:** Yes - JobLogsView.swift
+   - **Action:** Add button to job rows that opens existing JobLogsWindow
+   - **Estimated effort:** 20-40 minutes
+
+### Low Priority / Optional Items
+
+3. **Time string auto-update** (Section 1.2)
+   - [ ] Implement time string auto-update (every 60 seconds)
+   - **Status:** Deferred - Complex, requires weak references to labels
+   - **Note:** Time updates on refresh; not critical
+
+4. **Job summary auto-refresh** (Section 1.3)
+   - [ ] Auto-refresh job summaries for active runs
+   - **Status:** Works via full workflow refresh
+   - **Note:** Current auto-refresh handles this adequately
+
+5. **Job branch display** (Section 2.1)
+   - [ ] Display job branch name
+   - **Status:** Blocked - GitHub API may not provide branch per job
+   - **Note:** Low value feature
+
+6. **Cache invalidation** (Section 7)
+   - [ ] Explicit cache invalidation on refresh
+   - **Status:** Refresh fetches fresh data, implicit invalidation works
+   - **Note:** Current approach works well
+
+7. **Background features** (Section 9.1)
+   - [ ] Background auto-refresh with ETag
+   - [ ] Preserve workflow expansion state on repository refresh
+   - **Status:** Manual refresh works; nice-to-have improvements
+
+8. **Welcome screen integration** (Section 9.3)
+   - [ ] Integrate welcome screen into main window
+   - **Status:** Welcome screen exists but not in main flow
+   - **Note:** Auth flow works; welcome screen is cosmetic
+
+### macOS Features Already in GTK
+
+✅ **Preferences Window** - Implemented and accessible  
+✅ **Refresh Interval Settings** - Working  
+✅ **Favorites** - Implemented  
+✅ **Data Caching** - Fully implemented (runs + jobs)  
+✅ **Auto-refresh** - Working for active workflows  
+✅ **Workflow Trigger** - Working with branch selection  
+✅ **All Action Buttons** - Rerun, cancel, open in GitHub  
+✅ **Job Summary Badges** - Working  
+✅ **Workflow Status Badges** - Working  
+
+### macOS-specific Features (Not Applicable to GTK)
+
+- Keyboard shortcuts (GTK uses different mechanism - GAction/GtkShortcut)
+- SwiftUI-specific UI patterns (platform difference)
+- macOS menu bar integration (GTK uses different paradigm)
+
+### Recommendation for Next Session
+
+**Start with notifications** - highest impact, most visible missing feature compared to macOS.
 
 ---
 
 ### Notes for Future Sessions (Updated):
+
+---
+
+## Quick Status (Updated October 20, 2025)
+
+**✅ DONE:**
+- All workflow/job display features
+- All action buttons (trigger, rerun, cancel)
+- Auto-refresh for active runs
+- Full caching (runs + jobs)
+- Preferences UI
+- Error handling & retry
+- Visual polish
+
+**🔴 HIGH PRIORITY TODO:**
+1. Wire up NotificationManager for workflow completion notifications (~30-60 min)
+2. Add "View logs" button to detail view job rows (~20-40 min)
+
+**⚪ LOW PRIORITY / OPTIONAL:**
+- Time auto-update (complex, low value)
+- Job branch display (API limitation)
+- Expansion state preservation (nice-to-have)
+- Welcome screen integration (cosmetic)
+
+**Next action:** Implement workflow completion notifications (biggest gap vs macOS)
