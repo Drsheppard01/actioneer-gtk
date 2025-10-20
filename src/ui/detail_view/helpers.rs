@@ -7,7 +7,7 @@ use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, info};
 
 pub fn create_workflow_expander_row(
     workflow: &Workflow,
@@ -35,6 +35,114 @@ pub fn create_workflow_expander_row(
     workflow_name_label.set_halign(gtk::Align::Start);
     workflow_name_label.set_hexpand(true);
     header_box.append(&workflow_name_label);
+
+    // Trigger workflow button (for workflows that support workflow_dispatch)
+    let trigger_btn = gtk::Button::from_icon_name("media-playback-start-symbolic");
+    trigger_btn.set_tooltip_text(Some("Trigger workflow"));
+    trigger_btn.add_css_class("flat");
+    trigger_btn.add_css_class("circular");
+    trigger_btn.set_valign(gtk::Align::Center);
+
+    let client_for_trigger = client.clone();
+    let owner_for_trigger = owner.to_string();
+    let repo_for_trigger = repo.to_string();
+    let workflow_id_for_trigger = workflow.id;
+    let parent_window_for_trigger = parent_window.clone();
+
+    trigger_btn.connect_clicked(move |_| {
+        // Show dialog to get branch/ref
+        let dialog = gtk::Dialog::with_buttons(
+            Some("Trigger Workflow"),
+            Some(&parent_window_for_trigger),
+            gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+            &[
+                ("Cancel", gtk::ResponseType::Cancel),
+                ("Trigger", gtk::ResponseType::Accept),
+            ],
+        );
+
+        let content = dialog.content_area();
+        content.set_spacing(12);
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+
+        let info_label = gtk::Label::new(Some("Select branch or enter ref to trigger:"));
+        info_label.set_halign(gtk::Align::Start);
+        content.append(&info_label);
+
+        let entry = gtk::Entry::new();
+        entry.set_placeholder_text(Some("main"));
+        entry.set_text("main");
+        entry.set_activates_default(true);
+        content.append(&entry);
+
+        let notice_label = gtk::Label::new(Some(
+            "Note: Triggered runs may take 10-30 seconds to appear",
+        ));
+        notice_label.add_css_class("dim-label");
+        notice_label.add_css_class("caption");
+        notice_label.set_halign(gtk::Align::Start);
+        notice_label.set_wrap(true);
+        content.append(&notice_label);
+
+        dialog.set_default_response(gtk::ResponseType::Accept);
+
+        let client_clone = client_for_trigger.clone();
+        let owner_clone = owner_for_trigger.clone();
+        let repo_clone = repo_for_trigger.clone();
+
+        dialog.connect_response(move |dialog, response| {
+            if response == gtk::ResponseType::Accept {
+                let ref_text = entry.text().to_string();
+                let ref_to_use = if ref_text.is_empty() {
+                    "main"
+                } else {
+                    &ref_text
+                };
+
+                let client = client_clone.clone();
+                let owner = owner_clone.clone();
+                let repo = repo_clone.clone();
+                let workflow_ref = ref_to_use.to_string();
+
+                crate::runtime_handle().spawn(async move {
+                    let client_guard = client.lock().clone();
+                    let workflow_id_str = workflow_id_for_trigger.to_string();
+                    match client_guard
+                        .dispatch_workflow(&owner, &repo, &workflow_id_str, &workflow_ref, None)
+                        .await
+                    {
+                        Ok(_) => {
+                            glib::idle_add_local_once(move || {
+                                info!("Workflow triggered successfully");
+                            });
+                        }
+                        Err(e) => {
+                            error!("Failed to trigger workflow: {}", e);
+                            glib::idle_add_local_once(move || {
+                                let err_dialog = gtk::MessageDialog::new(
+                                    None::<&gtk::Window>,
+                                    gtk::DialogFlags::MODAL,
+                                    gtk::MessageType::Error,
+                                    gtk::ButtonsType::Ok,
+                                    &format!("Failed to trigger workflow: {}", e),
+                                );
+                                err_dialog.connect_response(|d, _| d.close());
+                                err_dialog.present();
+                            });
+                        }
+                    }
+                });
+            }
+            dialog.close();
+        });
+
+        dialog.present();
+    });
+
+    header_box.append(&trigger_btn);
 
     // Status badge (will be populated when runs are loaded)
     let status_badge = gtk::Label::new(None);

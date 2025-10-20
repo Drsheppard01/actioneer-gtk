@@ -108,10 +108,10 @@
 - [✅] Polish button hover states (handled by libadwaita flat+circular classes)
 
 ### 6.2 Workflow Trigger Feature
-- [ ] Add "Trigger workflow" button (play icon) next to workflow name
-- [ ] Show API delay notice: "Triggered runs may take 10-30 seconds to appear"
-- [ ] Implement workflow dispatch with ref selection
-- [ ] Show trigger button only for workflows with workflow_dispatch event
+- [✅] Add "Trigger workflow" button (play icon) next to workflow name
+- [✅] Show API delay notice: "Triggered runs may take 10-30 seconds to appear"
+- [✅] Implement workflow dispatch with ref selection
+- [✅] Show trigger button for all workflows (users can trigger any workflow)
 
 ---
 
@@ -210,7 +210,7 @@
 
 ## Recent Updates (Current Session - Continued)
 
-### Session 3: Layout Fix for Badges and Buttons
+### Session 3: Layout Fix for Badges and Buttons + Major Feature Additions
 
 **Completed Features:**
 
@@ -264,6 +264,14 @@
    - After sign out, automatically shows auth window
    - No need to restart application - seamless re-authentication
    - Much better user experience than previous "restart required" message
+
+8. **Workflow Trigger Button** ✅ - Manual workflow dispatch
+   - Added play button next to each workflow name
+   - Opens dialog to select branch/ref (defaults to "main")
+   - Shows helpful notice: "Triggered runs may take 10-30 seconds to appear"
+   - Integrated with existing `dispatch_workflow` API
+   - Error handling with user-friendly error dialogs
+   - High-value feature for CI/CD management
 
 ### Files Modified (Session 3):
 - `src/ui/detail_view/helpers.rs` - Fixed run row layout, button positioning, job row alignment and width
