@@ -157,12 +157,24 @@ fn load_workflow_runs(
 
         match result {
             Ok(runs) if runs.is_empty() => {
+                let vbox = gtk::Box::new(gtk::Orientation::Vertical, 6);
+                vbox.set_halign(gtk::Align::Start);
+                vbox.set_margin_top(4);
+                vbox.set_margin_bottom(4);
+
                 let label = gtk::Label::new(Some("No recent runs"));
                 label.add_css_class("dim-label");
                 label.set_halign(gtk::Align::Start);
-                label.set_margin_top(4);
-                label.set_margin_bottom(4);
-                runs_box.append(&label);
+                vbox.append(&label);
+
+                let info_label =
+                    gtk::Label::new(Some("Triggered runs may take 10-30 seconds to appear"));
+                info_label.add_css_class("dim-label");
+                info_label.add_css_class("caption");
+                info_label.set_halign(gtk::Align::Start);
+                vbox.append(&info_label);
+
+                runs_box.append(&vbox);
             }
             Ok(runs) => {
                 // Update workflow status badge based on most recent run
@@ -190,10 +202,54 @@ fn load_workflow_runs(
             }
             Err(e) => {
                 error!("Failed to load runs: {}", e);
-                let label = gtk::Label::new(Some("Failed to load runs"));
-                label.add_css_class("dim-label");
-                label.set_halign(gtk::Align::Start);
-                runs_box.append(&label);
+
+                // Create error display with retry option
+                let error_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+                error_box.set_halign(gtk::Align::Start);
+                error_box.set_margin_top(8);
+                error_box.set_margin_bottom(8);
+
+                let error_label = gtk::Label::new(Some("Unable to load workflow runs"));
+                error_label.add_css_class("dim-label");
+                error_label.set_halign(gtk::Align::Start);
+                error_box.append(&error_label);
+
+                let detail_label = gtk::Label::new(Some(&format!("Error: {}", e)));
+                detail_label.add_css_class("caption");
+                detail_label.add_css_class("dim-label");
+                detail_label.set_halign(gtk::Align::Start);
+                error_box.append(&detail_label);
+
+                // Add retry button
+                let retry_button = gtk::Button::with_label("Retry");
+                retry_button.add_css_class("suggested-action");
+                retry_button.set_halign(gtk::Align::Start);
+                retry_button.set_margin_top(8);
+
+                let client_retry = client.clone();
+                let owner_retry = owner.clone();
+                let repo_retry = repo.clone();
+                let runs_box_retry = runs_box.clone();
+                let parent_window_retry = parent_window_clone.clone();
+
+                retry_button.connect_clicked(move |_| {
+                    // Clear and reload
+                    while let Some(child) = runs_box_retry.first_child() {
+                        runs_box_retry.remove(&child);
+                    }
+                    load_workflow_runs(
+                        client_retry.clone(),
+                        owner_retry.clone(),
+                        repo_retry.clone(),
+                        workflow_id,
+                        runs_box_retry.clone(),
+                        parent_window_retry.clone(),
+                        None,
+                    );
+                });
+
+                error_box.append(&retry_button);
+                runs_box.append(&error_box);
             }
         }
 
@@ -532,6 +588,11 @@ fn load_run_jobs(
     let (sender, receiver) = glib::MainContext::default()
         .channel::<Result<Vec<Job>, GitHubError>>(glib::Priority::default());
 
+    // Clone for the receiver closure
+    let client_for_retry = client.clone();
+    let owner_for_retry = owner.clone();
+    let repo_for_retry = repo.clone();
+
     receiver.attach(None, move |result| {
         while let Some(child) = jobs_box.first_child() {
             jobs_box.remove(&child);
@@ -573,10 +634,52 @@ fn load_run_jobs(
             }
             Err(e) => {
                 error!("Failed to load jobs: {}", e);
-                let label = gtk::Label::new(Some("Failed to load jobs"));
-                label.add_css_class("dim-label");
-                label.set_halign(gtk::Align::Start);
-                jobs_box.append(&label);
+
+                // Create error display with retry option
+                let error_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+                error_box.set_halign(gtk::Align::Start);
+                error_box.set_margin_top(8);
+                error_box.set_margin_bottom(8);
+
+                let error_label = gtk::Label::new(Some("Unable to load jobs"));
+                error_label.add_css_class("dim-label");
+                error_label.set_halign(gtk::Align::Start);
+                error_box.append(&error_label);
+
+                let detail_label = gtk::Label::new(Some(&format!("Error: {}", e)));
+                detail_label.add_css_class("caption");
+                detail_label.add_css_class("dim-label");
+                detail_label.set_halign(gtk::Align::Start);
+                error_box.append(&detail_label);
+
+                // Add retry button
+                let retry_button = gtk::Button::with_label("Retry");
+                retry_button.add_css_class("suggested-action");
+                retry_button.set_halign(gtk::Align::Start);
+                retry_button.set_margin_top(8);
+
+                let client_retry = client_for_retry.clone();
+                let owner_retry = owner_for_retry.clone();
+                let repo_retry = repo_for_retry.clone();
+                let jobs_box_retry = jobs_box.clone();
+
+                retry_button.connect_clicked(move |_| {
+                    // Clear and reload
+                    while let Some(child) = jobs_box_retry.first_child() {
+                        jobs_box_retry.remove(&child);
+                    }
+                    load_run_jobs(
+                        client_retry.clone(),
+                        owner_retry.clone(),
+                        repo_retry.clone(),
+                        run_id,
+                        jobs_box_retry.clone(),
+                        None,
+                    );
+                });
+
+                error_box.append(&retry_button);
+                jobs_box.append(&error_box);
             }
         }
 

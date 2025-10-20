@@ -368,6 +368,7 @@ fn create_job_row(job: &Job) -> gtk::ListBoxRow {
 
     let icon = gtk::Image::from_icon_name(icon_name);
     icon.set_pixel_size(24);
+    icon.set_valign(gtk::Align::Start);
     if !css_class.is_empty() {
         icon.add_css_class(css_class);
     }
@@ -383,11 +384,16 @@ fn create_job_row(job: &Job) -> gtk::ListBoxRow {
     vbox.append(&name_label);
 
     let mut details = Vec::new();
-    if let Some(status) = &job.status {
-        details.push(format!("Status: {}", status));
+
+    // Show friendly status
+    let status_text = job.friendly_status();
+    if !status_text.is_empty() && status_text != "Unknown" {
+        details.push(status_text);
     }
-    if let Some(conclusion) = &job.conclusion {
-        details.push(format!("Conclusion: {}", conclusion));
+
+    // Show duration if available
+    if let Some(duration) = job.duration_string() {
+        details.push(duration);
     }
 
     if !details.is_empty() {
