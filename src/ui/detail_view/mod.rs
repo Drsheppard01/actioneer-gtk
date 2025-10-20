@@ -1,6 +1,7 @@
 use crate::api::models::{Repo, Workflow};
 use crate::api::{GitHubClient, GitHubError};
 use crate::favorites::FavoritesManager;
+use crate::preferences::PreferencesManager;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -22,6 +23,7 @@ pub struct RepoDetailPane {
     #[allow(dead_code)]
     expanded_workflows: Arc<Mutex<HashSet<i64>>>,
     favorites_manager: Option<Arc<FavoritesManager>>,
+    preferences_manager: Option<Arc<PreferencesManager>>,
     favorites: Arc<Mutex<HashSet<i64>>>,
     favorite_button: gtk::ToggleButton,
     refresh_button: gtk::Button,
@@ -29,6 +31,8 @@ pub struct RepoDetailPane {
     list_box: gtk::ListBox,
     root: gtk::Box,
     loading: Arc<Mutex<bool>>, // Guard against re-entrant loads
+    auto_refresh_source: Arc<Mutex<Option<glib::SourceId>>>, // Auto-refresh timer
+    workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>, // Track workflows needing refresh
 }
 
 impl RepoDetailPane {
@@ -37,6 +41,7 @@ impl RepoDetailPane {
         repo: Repo,
         client: Arc<Mutex<GitHubClient>>,
         favorites_manager: Option<Arc<FavoritesManager>>,
+        preferences_manager: Option<Arc<PreferencesManager>>,
         favorites: Arc<Mutex<HashSet<i64>>>,
     ) -> Self {
         info!("Creating RepoDetailPane for: {}", repo.full_name);
@@ -71,6 +76,7 @@ impl RepoDetailPane {
             workflows: workflows.clone(),
             expanded_workflows: expanded_workflows.clone(),
             favorites_manager: favorites_manager.clone(),
+            preferences_manager: preferences_manager.clone(),
             favorites: favorites.clone(),
             favorite_button: favorite_button.clone(),
             refresh_button: refresh_button.clone(),
@@ -78,12 +84,15 @@ impl RepoDetailPane {
             list_box: list_box.clone(),
             root: root.clone(),
             loading: Arc::new(Mutex::new(false)),
+            auto_refresh_source: Arc::new(Mutex::new(None)),
+            workflows_with_active_runs: Arc::new(Mutex::new(HashSet::new())),
         };
 
         pane.build_ui();
         pane.setup_favorite_button();
         pane.observe_favorites();
         pane.load_workflows();
+        pane.start_auto_refresh();
         pane
     }
 
@@ -523,6 +532,138 @@ impl RepoDetailPane {
                 refresh_button.set_visible(true);
             }
         });
+    }
+
+    /// Start auto-refresh timer for active runs
+    fn start_auto_refresh(&self) {
+        // Get refresh interval from preferences (default 5 seconds)
+        let refresh_interval_secs = if let Some(prefs_mgr) = &self.preferences_manager {
+            // Try to get current preferences
+            let handle = crate::runtime_handle().clone();
+            let prefs_mgr = prefs_mgr.clone();
+            
+            // Spawn a task to get preferences (it's async)
+            handle.spawn(async move {
+                prefs_mgr.get().await.refresh_interval
+            });
+            
+            // For now, use default while we wait
+            5u64
+        } else {
+            5u64
+        };
+
+        // Don't auto-refresh if interval is 0 (disabled)
+        if refresh_interval_secs == 0 {
+            info!("Auto-refresh disabled (interval = 0)");
+            return;
+        }
+
+        let client = self.client.clone();
+        let owner = self.repo.owner.login.clone();
+        let repo_name = self.repo.name.clone();
+        let parent_window = self.parent.clone();
+        let list_box = self.list_box.clone();
+        let workflows_with_active = self.workflows_with_active_runs.clone();
+        let auto_refresh_source = self.auto_refresh_source.clone();
+
+        info!(
+            "Starting auto-refresh timer with interval: {} seconds",
+            refresh_interval_secs
+        );
+
+        // Schedule periodic refresh
+        let source_id = glib::timeout_add_seconds_local(
+            refresh_interval_secs as u32,
+            move || {
+                // Check if there are any workflows with active runs
+                let has_active = {
+                    let active = workflows_with_active.lock();
+                    !active.is_empty()
+                };
+
+                if !has_active {
+                    // No active runs, continue timer but skip refresh
+                    return glib::ControlFlow::Continue;
+                }
+
+                info!("Auto-refreshing workflows with active runs");
+
+                // Refresh expanded workflows that have active runs
+                Self::refresh_active_workflows(
+                    &list_box,
+                    &client,
+                    &owner,
+                    &repo_name,
+                    &parent_window,
+                    &workflows_with_active,
+                );
+
+                glib::ControlFlow::Continue
+            },
+        );
+
+        *auto_refresh_source.lock() = Some(source_id);
+    }
+
+    /// Refresh only workflows that have active runs
+    fn refresh_active_workflows(
+        list_box: &gtk::ListBox,
+        _client: &Arc<Mutex<GitHubClient>>,
+        _owner: &str,
+        _repo: &str,
+        _parent_window: &adw::ApplicationWindow,
+        workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
+    ) {
+        // Scan for workflows with active runs and update tracking set
+        let mut found_active_ids = HashSet::new();
+        
+        let mut child = list_box.first_child();
+        while let Some(widget) = child.as_ref() {
+            let next_sibling = widget.next_sibling();
+
+            if let Ok(row) = widget.clone().downcast::<gtk::ListBoxRow>() {
+                if let Some(row_child) = row.child() {
+                    if let Some(box_widget) = row_child.downcast_ref::<gtk::Box>() {
+                        let mut inner_child = box_widget.first_child();
+                        while let Some(widget) = inner_child.as_ref() {
+                            let next = widget.next_sibling();
+
+                            if let Some(expander) = widget.downcast_ref::<gtk::Expander>() {
+                                // Check if this workflow has active runs (widget name ends with _ACTIVE)
+                                let name = expander.widget_name();
+                                let name_str = name.as_str();
+                                let has_active = name_str.ends_with("_ACTIVE");
+                                
+                                // Extract workflow ID (before _ACTIVE suffix if present)
+                                let base_name = name_str.trim_end_matches("_ACTIVE");
+                                if let Some(id_str) = base_name.strip_prefix("workflow_") {
+                                    if let Ok(workflow_id) = id_str.parse::<i64>() {
+                                        if has_active {
+                                            found_active_ids.insert(workflow_id);
+                                            
+                                            // Only refresh if expanded
+                                            if expander.is_expanded() {
+                                                info!("Auto-refreshing active workflow {}", workflow_id);
+                                                
+                                                // Trigger re-expansion to fetch fresh data
+                                                expander.set_expanded(false);
+                                                expander.set_expanded(true);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            inner_child = next;
+                        }
+                    }
+                }
+            }
+            child = next_sibling;
+        }
+        
+        // Update the tracking set with current active workflows
+        *workflows_with_active.lock() = found_active_ids;
     }
 }
 

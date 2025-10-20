@@ -9,6 +9,18 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::{error, info};
 
+/// Parameters for loading workflow runs
+struct LoadRunsParams {
+    client: Arc<Mutex<GitHubClient>>,
+    owner: String,
+    repo: String,
+    workflow_id: i64,
+    runs_box: gtk::Box,
+    parent_window: adw::ApplicationWindow,
+    status_badge: Option<gtk::Label>,
+    expander: gtk::Expander,
+}
+
 pub fn create_workflow_expander_row(
     workflow: &Workflow,
     client: &Arc<Mutex<GitHubClient>>,
@@ -262,15 +274,16 @@ pub fn create_workflow_expander_row(
         if let Some(child) = first_child {
             if child.is::<gtk::Label>() {
                 // Still has placeholder, load runs
-                load_workflow_runs(
-                    client_clone.clone(),
-                    owner.clone(),
-                    repo_name.clone(),
+                load_workflow_runs(LoadRunsParams {
+                    client: client_clone.clone(),
+                    owner: owner.clone(),
+                    repo: repo_name.clone(),
                     workflow_id,
-                    runs_box_clone.clone(),
-                    parent_window.clone(),
-                    Some(status_badge_clone.clone()),
-                );
+                    runs_box: runs_box_clone.clone(),
+                    parent_window: parent_window.clone(),
+                    status_badge: Some(status_badge_clone.clone()),
+                    expander: exp.clone(),
+                });
             }
         }
     });
@@ -286,15 +299,18 @@ pub fn create_workflow_expander_row(
     row
 }
 
-fn load_workflow_runs(
-    client: Arc<Mutex<GitHubClient>>,
-    owner: String,
-    repo: String,
-    workflow_id: i64,
-    runs_box: gtk::Box,
-    parent_window: adw::ApplicationWindow,
-    status_badge: Option<gtk::Label>,
-) {
+fn load_workflow_runs(params: LoadRunsParams) {
+    let LoadRunsParams {
+        client,
+        owner,
+        repo,
+        workflow_id,
+        runs_box,
+        parent_window,
+        status_badge,
+        expander,
+    } = params;
+
     // Show loading indicator
     while let Some(child) = runs_box.first_child() {
         runs_box.remove(&child);
@@ -314,6 +330,7 @@ fn load_workflow_runs(
     let owner_for_spawn = owner.clone();
     let repo_for_spawn = repo.clone();
     let parent_window_clone = parent_window.clone();
+    let expander_for_retry = expander.clone();
 
     receiver.attach(None, move |result| {
         // Remove spinner
@@ -348,6 +365,23 @@ fn load_workflow_runs(
                     if let Some(latest_run) = runs.first() {
                         update_workflow_status_badge(badge, latest_run);
                     }
+                }
+
+                // Check if any runs are active (in_progress, queued, waiting)
+                let has_active_runs = runs.iter().any(|run| {
+                    matches!(run.status.as_deref(), Some("in_progress") | Some("queued") | Some("waiting"))
+                });
+
+                // Store active status in expander's widget name with a marker
+                let widget_name = expander.widget_name();
+                let base_name = widget_name.as_str().trim_end_matches("_ACTIVE");
+                
+                if has_active_runs {
+                    expander.set_widget_name(&format!("{}_ACTIVE", base_name));
+                    info!("Workflow {} has active runs", workflow_id);
+                } else {
+                    expander.set_widget_name(base_name);
+                    info!("Workflow {} has no active runs", workflow_id);
                 }
 
                 let run_count = runs.len();
@@ -397,21 +431,23 @@ fn load_workflow_runs(
                 let repo_retry = repo.clone();
                 let runs_box_retry = runs_box.clone();
                 let parent_window_retry = parent_window_clone.clone();
+                let expander_retry = expander_for_retry.clone();
 
                 retry_button.connect_clicked(move |_| {
                     // Clear and reload
                     while let Some(child) = runs_box_retry.first_child() {
                         runs_box_retry.remove(&child);
                     }
-                    load_workflow_runs(
-                        client_retry.clone(),
-                        owner_retry.clone(),
-                        repo_retry.clone(),
+                    load_workflow_runs(LoadRunsParams {
+                        client: client_retry.clone(),
+                        owner: owner_retry.clone(),
+                        repo: repo_retry.clone(),
                         workflow_id,
-                        runs_box_retry.clone(),
-                        parent_window_retry.clone(),
-                        None,
-                    );
+                        runs_box: runs_box_retry.clone(),
+                        parent_window: parent_window_retry.clone(),
+                        status_badge: None,
+                        expander: expander_retry.clone(),
+                    });
                 });
 
                 error_box.append(&retry_button);

@@ -717,6 +717,7 @@ impl MainWindow {
                     repo,
                     Arc::new(Mutex::new(client)),
                     self.favorites_manager.clone(),
+                    self.preferences_manager.clone(),
                     self.favorites.clone(),
                 );
                 let stack = self.detail_stack.clone();
