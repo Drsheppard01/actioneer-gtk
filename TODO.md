@@ -268,15 +268,35 @@
 8. **Workflow Trigger Button** ✅ - Manual workflow dispatch
    - Added play button next to each workflow name
    - Opens dialog to select branch/ref (defaults to "main")
+   - **Fetches and displays all repository branches in dropdown**
+   - Shows loading spinner while fetching branches
+   - Graceful fallback to "main" if branch fetch fails
    - Shows helpful notice: "Triggered runs may take 10-30 seconds to appear"
    - Integrated with existing `dispatch_workflow` API
    - Error handling with user-friendly error dialogs
    - High-value feature for CI/CD management
+   - **Much better UX than typing branch names!**
+
+9. **Welcome Screen** 🔄 - Sign-in state UI (IN PROGRESS)
+   - Created welcome_screen.rs with beautiful sign-in UI
+   - Matches macOS app design with icon, title, features list
+   - "Sign in with GitHub" button (blue, prominent)
+   - "Try Demo Mode" button (disabled as requested)
+   - Ready to integrate into main window with stack switcher
+   - TODO: Wire up authentication flow, switch between welcome/main views
+
+### Known Issues to Fix:
+- [ ] Background auto-refresh with ETag (triggered workflows don't appear without manual refresh)
+- [ ] Preserve workflow expansion state on repository refresh
+- [ ] Integrate welcome screen into main window (show on startup if not authenticated)
 
 ### Files Modified (Session 3):
-- `src/ui/detail_view/helpers.rs` - Fixed run row layout, button positioning, job row alignment and width
+- `src/ui/detail_view/helpers.rs` - Fixed run row layout, button positioning, job row alignment and width, added workflow trigger with branch selector
 - `src/ui/auth_window.rs` - Improved spinner placement and added copy-to-clipboard button
 - `src/ui/main_window.rs` - Added sign out confirmation and seamless re-authentication
+- `src/api/models.rs` - Added Branch and BranchCommit models
+- `src/api/repos.rs` - Added list_branches function
+- `src/api/client.rs` - Added list_branches method
 - `TODO.md` - Updated progress tracking
 
 ### Technical Details:
@@ -288,6 +308,9 @@
 - Job row: job_name has `hexpand(true)`, right_box has `hexpand(false)` and `halign(End)`
 - Job row metadata (status, duration, button) grouped in right_box with `halign(End)` and `valign(Center)`
 - Added unit test `test_job_row_layout_properties` to verify alignment
+- Branch selector uses glib::MainContext channel for async data fetching
+- ComboBoxText provides native dropdown UI with loading spinner
+- Branch fetching gracefully falls back to "main" if API fails
 - Spinner now in horizontal box with status label for better alignment
 - Changed `set_valign(gtk::Align::Center)` to `set_valign(gtk::Align::Start)` for badges
 - Added `margin_top(1-2px)` for fine-tuned baseline alignment on badges

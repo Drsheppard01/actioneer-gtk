@@ -1,6 +1,7 @@
 mod detail_placeholder;
 mod detail_view;
 mod sidebar;
+mod welcome_screen;
 
 pub mod auth_window;
 pub mod job_logs_window;
@@ -15,3 +16,4 @@ pub mod tasks;
 pub mod utils;
 
 pub use main_window::MainWindow;
+pub use welcome_screen::WelcomeScreen;

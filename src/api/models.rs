@@ -26,6 +26,18 @@ pub struct User {
     pub login: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Branch {
+    pub name: String,
+    pub commit: BranchCommit,
+    pub protected: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchCommit {
+    pub sha: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Workflow {
     pub id: i64,

@@ -52,6 +52,17 @@ impl GitHubClient {
         .await
     }
 
+    pub async fn list_branches(&self, owner: &str, repo: &str) -> Result<Vec<Branch>, GitHubError> {
+        repos::list_branches(
+            &self.client,
+            &self.token,
+            &self.response_handler,
+            owner,
+            repo,
+        )
+        .await
+    }
+
     // Workflow operations
     pub async fn list_workflows(
         &self,

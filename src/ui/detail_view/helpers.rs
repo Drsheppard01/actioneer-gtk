@@ -68,15 +68,24 @@ pub fn create_workflow_expander_row(
         content.set_margin_start(12);
         content.set_margin_end(12);
 
-        let info_label = gtk::Label::new(Some("Select branch or enter ref to trigger:"));
+        let info_label = gtk::Label::new(Some("Select branch to trigger:"));
         info_label.set_halign(gtk::Align::Start);
         content.append(&info_label);
 
-        let entry = gtk::Entry::new();
-        entry.set_placeholder_text(Some("main"));
-        entry.set_text("main");
-        entry.set_activates_default(true);
-        content.append(&entry);
+        // Branch dropdown with loading state
+        let branch_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+
+        let branch_dropdown = gtk::ComboBoxText::new();
+        branch_dropdown.set_hexpand(true);
+        branch_dropdown.append(Some("main"), "main");
+        branch_dropdown.set_active_id(Some("main"));
+        branch_box.append(&branch_dropdown);
+
+        let loading_spinner = gtk::Spinner::new();
+        loading_spinner.set_visible(false);
+        branch_box.append(&loading_spinner);
+
+        content.append(&branch_box);
 
         let notice_label = gtk::Label::new(Some(
             "Note: Triggered runs may take 10-30 seconds to appear",
@@ -89,45 +98,94 @@ pub fn create_workflow_expander_row(
 
         dialog.set_default_response(gtk::ResponseType::Accept);
 
+        // Fetch branches in the background
+        let client_for_branches = client_for_trigger.clone();
+        let owner_for_branches = owner_for_trigger.clone();
+        let repo_for_branches = repo_for_trigger.clone();
+        let branch_dropdown_clone = branch_dropdown.clone();
+        let loading_spinner_clone = loading_spinner.clone();
+
+        loading_spinner_clone.set_visible(true);
+        loading_spinner_clone.start();
+
+        // Use channel to communicate back to main thread
+        let (sender, receiver) = glib::MainContext::default()
+            .channel::<Result<Vec<crate::api::models::Branch>, String>>(glib::Priority::default());
+
+        crate::runtime_handle().spawn(async move {
+            let client_guard = client_for_branches.lock().clone();
+            let branches_result = client_guard
+                .list_branches(&owner_for_branches, &repo_for_branches)
+                .await;
+            let _ = sender.send(branches_result.map_err(|e| e.to_string()));
+        });
+
+        receiver.attach(None, move |branches_result| {
+            loading_spinner_clone.stop();
+            loading_spinner_clone.set_visible(false);
+
+            match branches_result {
+                Ok(branches) => {
+                    // Clear existing items
+                    branch_dropdown_clone.remove_all();
+
+                    // Add all branches
+                    for branch in branches {
+                        branch_dropdown_clone.append(Some(&branch.name), &branch.name);
+                    }
+
+                    // Try to select "main" or the first branch
+                    if !branch_dropdown_clone.set_active_id(Some("main")) {
+                        branch_dropdown_clone.set_active(Some(0));
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to fetch branches: {}", e);
+                    // Keep the default "main" option
+                }
+            }
+
+            glib::ControlFlow::Break
+        });
+
         let client_clone = client_for_trigger.clone();
         let owner_clone = owner_for_trigger.clone();
         let repo_clone = repo_for_trigger.clone();
 
         dialog.connect_response(move |dialog, response| {
             if response == gtk::ResponseType::Accept {
-                let ref_text = entry.text().to_string();
-                let ref_to_use = if ref_text.is_empty() {
-                    "main"
-                } else {
-                    &ref_text
-                };
+                let selected_branch = branch_dropdown
+                    .active_id()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "main".to_string());
 
                 let client = client_clone.clone();
                 let owner = owner_clone.clone();
                 let repo = repo_clone.clone();
-                let workflow_ref = ref_to_use.to_string();
 
                 crate::runtime_handle().spawn(async move {
                     let client_guard = client.lock().clone();
                     let workflow_id_str = workflow_id_for_trigger.to_string();
                     match client_guard
-                        .dispatch_workflow(&owner, &repo, &workflow_id_str, &workflow_ref, None)
+                        .dispatch_workflow(&owner, &repo, &workflow_id_str, &selected_branch, None)
                         .await
                     {
                         Ok(_) => {
+                            let branch_name = selected_branch.clone();
                             glib::idle_add_local_once(move || {
-                                info!("Workflow triggered successfully");
+                                info!("Workflow triggered successfully on branch: {}", branch_name);
                             });
                         }
                         Err(e) => {
                             error!("Failed to trigger workflow: {}", e);
+                            let error_msg = format!("Failed to trigger workflow: {}", e);
                             glib::idle_add_local_once(move || {
                                 let err_dialog = gtk::MessageDialog::new(
                                     None::<&gtk::Window>,
                                     gtk::DialogFlags::MODAL,
                                     gtk::MessageType::Error,
                                     gtk::ButtonsType::Ok,
-                                    &format!("Failed to trigger workflow: {}", e),
+                                    &error_msg,
                                 );
                                 err_dialog.connect_response(|d, _| d.close());
                                 err_dialog.present();

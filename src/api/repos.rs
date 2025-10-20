@@ -1,7 +1,7 @@
 /// Repository operations
 use super::error::GitHubError;
 use super::http::{add_auth_header, ResponseHandler, GITHUB_API_BASE};
-use crate::api::models::Repo;
+use crate::api::models::{Branch, Repo};
 use reqwest::Client;
 use tracing::info;
 
@@ -127,4 +127,33 @@ pub async fn is_actions_enabled(
             )))
         }
     }
+}
+
+/// List branches for a repository
+pub async fn list_branches(
+    client: &Client,
+    token: &Option<String>,
+    response_handler: &ResponseHandler,
+    owner: &str,
+    repo: &str,
+) -> Result<Vec<Branch>, GitHubError> {
+    info!("Fetching branches for {}/{}", owner, repo);
+
+    let cache_key = format!("GET /repos/{}/{}/branches", owner, repo);
+    let request = client
+        .get(format!(
+            "{}/repos/{}/{}/branches",
+            GITHUB_API_BASE, owner, repo
+        ))
+        .query(&[("per_page", "100")]);
+
+    let request = add_auth_header(request, token);
+    let request = response_handler.apply_cache_headers(request, Some(&cache_key));
+    let response = request.send().await?;
+
+    let branches: Vec<Branch> = response_handler
+        .handle_response(response, Some(&cache_key))
+        .await?;
+
+    Ok(branches)
 }
