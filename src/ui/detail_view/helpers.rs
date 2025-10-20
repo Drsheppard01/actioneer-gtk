@@ -1,6 +1,7 @@
 // Helper functions for the detail view expandable UI
 use crate::api::models::{Job, JobSummary, Workflow, WorkflowRun};
 use crate::api::{GitHubClient, GitHubError};
+use crate::cache::DataCache;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -19,6 +20,7 @@ struct LoadRunsParams {
     parent_window: adw::ApplicationWindow,
     status_badge: Option<gtk::Label>,
     expander: gtk::Expander,
+    cache: Arc<DataCache>,
 }
 
 pub fn create_workflow_expander_row(
@@ -28,6 +30,7 @@ pub fn create_workflow_expander_row(
     repo: &str,
     should_expand: bool,
     parent_window: &adw::ApplicationWindow,
+    cache: &Arc<DataCache>,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.set_activatable(false);
@@ -175,37 +178,48 @@ pub fn create_workflow_expander_row(
                 let owner = owner_clone.clone();
                 let repo = repo_clone.clone();
 
+                // Create channel to communicate result back to main thread
+                let (sender, receiver) = glib::MainContext::default()
+                    .channel::<Result<String, String>>(glib::Priority::default());
+
                 crate::runtime_handle().spawn(async move {
                     let client_guard = client.lock().clone();
                     let workflow_id_str = workflow_id_for_trigger.to_string();
-                    match client_guard
+                    let result = client_guard
                         .dispatch_workflow(&owner, &repo, &workflow_id_str, &selected_branch, None)
-                        .await
-                    {
+                        .await;
+                    
+                    match result {
                         Ok(_) => {
-                            let branch_name = selected_branch.clone();
-                            glib::idle_add_local_once(move || {
-                                info!("Workflow triggered successfully on branch: {}", branch_name);
-                            });
+                            let _ = sender.send(Ok(selected_branch));
                         }
                         Err(e) => {
-                            error!("Failed to trigger workflow: {}", e);
-                            let error_msg = format!("Failed to trigger workflow: {}", e);
-                            glib::idle_add_local_once(move || {
-                                let err_dialog = gtk::MessageDialog::new(
-                                    None::<&gtk::Window>,
-                                    gtk::DialogFlags::MODAL,
-                                    gtk::MessageType::Error,
-                                    gtk::ButtonsType::Ok,
-                                    &error_msg,
-                                );
-                                err_dialog.connect_response(|d, _| d.close());
-                                err_dialog.present();
-                            });
+                            let _ = sender.send(Err(format!("Failed to trigger workflow: {}", e)));
                         }
                     }
                 });
+
+                receiver.attach(None, move |result| {
+                    match result {
+                        Ok(branch_name) => {
+                            info!("Workflow triggered successfully on branch: {}", branch_name);
+                        }
+                        Err(error_msg) => {
+                            error!("{}", error_msg);
+                            let err_dialog = gtk::MessageDialog::new(
+                                None::<&gtk::Window>,
+                                gtk::DialogFlags::MODAL,
+                                gtk::MessageType::Error,
+                                gtk::ButtonsType::Ok,
+                                &error_msg,
+                            );
+                            err_dialog.present();
+                        }
+                    }
+                    glib::ControlFlow::Break
+                });
             }
+
             dialog.close();
         });
 
@@ -254,6 +268,7 @@ pub fn create_workflow_expander_row(
     let runs_box_clone = runs_box.clone();
     let parent_window = parent_window.clone();
     let status_badge_clone = status_badge.clone();
+    let cache_clone = cache.clone();
 
     // Track if we're programmatically expanding (to avoid triggering load)
     let is_programmatic_expand = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -283,6 +298,7 @@ pub fn create_workflow_expander_row(
                     parent_window: parent_window.clone(),
                     status_badge: Some(status_badge_clone.clone()),
                     expander: exp.clone(),
+                    cache: cache_clone.clone(),
                 });
             }
         }
@@ -309,6 +325,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
         parent_window,
         status_badge,
         expander,
+        cache,
     } = params;
 
     // Show loading indicator
@@ -331,6 +348,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
     let repo_for_spawn = repo.clone();
     let parent_window_clone = parent_window.clone();
     let expander_for_retry = expander.clone();
+    let cache_for_spawn = cache.clone();
 
     receiver.attach(None, move |result| {
         // Remove spinner
@@ -360,6 +378,14 @@ fn load_workflow_runs(params: LoadRunsParams) {
                 runs_box.append(&vbox);
             }
             Ok(runs) => {
+                // Store runs in cache
+                let cache_store = cache.clone();
+                let cache_key = format!("{}/{}", owner, repo);
+                let runs_cache = runs.clone();
+                crate::runtime_handle().spawn(async move {
+                    cache_store.store_runs(runs_cache, &cache_key, workflow_id).await;
+                });
+                
                 // Update workflow status badge based on most recent run
                 if let Some(ref badge) = status_badge {
                     if let Some(latest_run) = runs.first() {
@@ -432,6 +458,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
                 let runs_box_retry = runs_box.clone();
                 let parent_window_retry = parent_window_clone.clone();
                 let expander_retry = expander_for_retry.clone();
+                let cache_retry = cache.clone();
 
                 retry_button.connect_clicked(move |_| {
                     // Clear and reload
@@ -447,6 +474,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
                         parent_window: parent_window_retry.clone(),
                         status_badge: None,
                         expander: expander_retry.clone(),
+                        cache: cache_retry.clone(),
                     });
                 });
 
@@ -459,6 +487,16 @@ fn load_workflow_runs(params: LoadRunsParams) {
     });
 
     crate::runtime_handle().spawn(async move {
+        let cache_key = format!("{}/{}", owner_for_spawn, repo_for_spawn);
+        
+        // Try cache first
+        if let Some(cached_runs) = cache_for_spawn.runs(&cache_key, workflow_id).await {
+            info!("Using cached runs for workflow {}", workflow_id);
+            let _ = sender.send(Ok(cached_runs));
+            return;
+        }
+        
+        // Cache miss - fetch from API
         let client_guard = client_for_spawn.lock().clone();
         let result = client_guard
             .list_runs(&owner_for_spawn, &repo_for_spawn, workflow_id)

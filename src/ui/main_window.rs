@@ -3,6 +3,7 @@ use super::detail_view::RepoDetailPane;
 use super::sidebar::{find_label_by_name, rebuild_repo_list, row_matches_query};
 use crate::api::models::{RateLimitInfo, Repo};
 use crate::api::{GitHubClient, GitHubError};
+use crate::cache::DataCache;
 use crate::favorites::FavoritesManager;
 use crate::preferences::PreferencesManager;
 use crate::storage::TokenStorage;
@@ -37,6 +38,7 @@ pub struct MainWindow {
     header_spinner: Rc<RefCell<Option<gtk::Spinner>>>,
     favorites_manager: Option<Arc<FavoritesManager>>,
     favorites: Arc<Mutex<HashSet<i64>>>,
+    cache: Arc<DataCache>,
     actions_states: Arc<Mutex<HashMap<i64, RepoActionsState>>>,
     actions_checked_at: Arc<Mutex<HashMap<i64, Instant>>>,
     workflow_counts: Arc<Mutex<HashMap<i64, WorkflowStatusCounts>>>,
@@ -135,6 +137,7 @@ impl MainWindow {
             header_spinner: header_spinner.clone(),
             favorites_manager: favorites_manager.clone(),
             favorites: favorites.clone(),
+            cache: Arc::new(DataCache::new()),
             actions_states: actions_states.clone(),
             actions_checked_at: actions_checked_at.clone(),
             workflow_counts: workflow_counts.clone(),
@@ -718,6 +721,7 @@ impl MainWindow {
                     Arc::new(Mutex::new(client)),
                     self.favorites_manager.clone(),
                     self.preferences_manager.clone(),
+                    self.cache.clone(),
                     self.favorites.clone(),
                 );
                 let stack = self.detail_stack.clone();

@@ -1,5 +1,6 @@
 use crate::api::models::{Repo, Workflow};
 use crate::api::{GitHubClient, GitHubError};
+use crate::cache::DataCache;
 use crate::favorites::FavoritesManager;
 use crate::preferences::PreferencesManager;
 use crate::ui::utils::MainContextChannelExt;
@@ -24,6 +25,7 @@ pub struct RepoDetailPane {
     expanded_workflows: Arc<Mutex<HashSet<i64>>>,
     favorites_manager: Option<Arc<FavoritesManager>>,
     preferences_manager: Option<Arc<PreferencesManager>>,
+    cache: Arc<DataCache>,
     favorites: Arc<Mutex<HashSet<i64>>>,
     favorite_button: gtk::ToggleButton,
     refresh_button: gtk::Button,
@@ -42,6 +44,7 @@ impl RepoDetailPane {
         client: Arc<Mutex<GitHubClient>>,
         favorites_manager: Option<Arc<FavoritesManager>>,
         preferences_manager: Option<Arc<PreferencesManager>>,
+        cache: Arc<DataCache>,
         favorites: Arc<Mutex<HashSet<i64>>>,
     ) -> Self {
         info!("Creating RepoDetailPane for: {}", repo.full_name);
@@ -77,6 +80,7 @@ impl RepoDetailPane {
             expanded_workflows: expanded_workflows.clone(),
             favorites_manager: favorites_manager.clone(),
             preferences_manager: preferences_manager.clone(),
+            cache: cache.clone(),
             favorites: favorites.clone(),
             favorite_button: favorite_button.clone(),
             refresh_button: refresh_button.clone(),
@@ -284,6 +288,7 @@ impl RepoDetailPane {
         let list_box = self.list_box.clone();
         let parent_window = self.parent.clone();
         let loading_guard = self.loading.clone();
+        let cache = self.cache.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -296,6 +301,7 @@ impl RepoDetailPane {
         let client_for_spawn = client.clone();
         let owner_for_spawn = owner.clone();
         let repo_name_for_spawn = repo_name.clone();
+        let cache_for_spawn = cache.clone();
 
         receiver.attach(None, move |result| {
             // Hide loading spinner
@@ -308,6 +314,15 @@ impl RepoDetailPane {
                 Ok(wf_list) => {
                     info!("Loaded {} workflows", wf_list.len());
                     *workflows.lock() = wf_list.clone();
+                    
+                    // Store workflows in cache
+                    let cache_store = cache.clone();
+                    let cache_key = format!("{}/{}", owner, repo_name);
+                    let wf_list_cache = wf_list.clone();
+                    crate::runtime_handle().spawn(async move {
+                        cache_store.store_workflows(wf_list_cache, &cache_key).await;
+                    });
+                    
                     update_workflows_list(
                         &list_box,
                         &wf_list,
@@ -315,6 +330,7 @@ impl RepoDetailPane {
                         &owner,
                         &repo_name,
                         &parent_window,
+                        &cache,
                     );
                 }
                 Err(e) => {
@@ -326,6 +342,16 @@ impl RepoDetailPane {
         });
 
         crate::runtime_handle().spawn(async move {
+            let cache_key = format!("{}/{}", owner_for_spawn, repo_name_for_spawn);
+            
+            // Try cache first
+            if let Some(cached_workflows) = cache_for_spawn.workflows(&cache_key).await {
+                info!("Using cached workflows for {}", cache_key);
+                let _ = sender.send(Ok(cached_workflows));
+                return;
+            }
+            
+            // Cache miss - fetch from API
             let client_clone = client_for_spawn.lock().clone();
             let result =
                 fetch_workflows(&client_clone, &owner_for_spawn, &repo_name_for_spawn).await;
@@ -351,6 +377,7 @@ impl RepoDetailPane {
         let list_box = self.list_box.clone();
         let parent_window = self.parent.clone();
         let loading_guard = self.loading.clone();
+        let cache = self.cache.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -378,6 +405,7 @@ impl RepoDetailPane {
                             &owner,
                             &repo_name,
                             &parent_window,
+                            &cache,
                         );
                     }
                 }
@@ -410,6 +438,7 @@ impl RepoDetailPane {
         let callback_refs = self.clone_for_callbacks();
         let parent_window = self.parent.clone();
         let loading_guard = self.loading.clone();
+        let cache = self.cache.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -430,6 +459,7 @@ impl RepoDetailPane {
             let callback_refs = callback_refs.clone();
             let parent_window = parent_window.clone();
             let loading_guard = loading_guard.clone();
+            let cache = cache.clone();
 
             // Show loading spinner
             callback_refs.show_loading(true);
@@ -462,6 +492,7 @@ impl RepoDetailPane {
                             &owner_for_ui,
                             &repo_name_for_ui,
                             &parent_window_for_ui,
+                            &cache,
                         );
                     }
                     Err(e) => {
@@ -732,6 +763,7 @@ fn update_workflows_list(
     owner: &str,
     repo: &str,
     parent_window: &adw::ApplicationWindow,
+    cache: &Arc<DataCache>,
 ) {
     use std::collections::HashSet;
 
@@ -807,6 +839,7 @@ fn update_workflows_list(
             repo,
             should_expand,
             parent_window,
+            cache,
         );
         list_box.append(&expander_row);
     }
