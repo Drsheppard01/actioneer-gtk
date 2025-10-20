@@ -33,6 +33,8 @@ struct LoadRunsParams {
     status_badge: Option<gtk::Label>,
     expander: gtk::Expander,
     cache: Arc<DataCache>,
+    toast_overlay: adw::ToastOverlay,
+    bypass_cache: bool,
 }
 
 pub fn create_workflow_expander_row(
@@ -43,6 +45,7 @@ pub fn create_workflow_expander_row(
     should_expand: bool,
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
+    toast_overlay: adw::ToastOverlay,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.set_activatable(false);
@@ -69,174 +72,6 @@ pub fn create_workflow_expander_row(
     trigger_btn.add_css_class("flat");
     trigger_btn.add_css_class("circular");
     trigger_btn.set_valign(gtk::Align::Center);
-
-    let client_for_trigger = client.clone();
-    let owner_for_trigger = owner.to_string();
-    let repo_for_trigger = repo.to_string();
-    let workflow_id_for_trigger = workflow.id;
-    let parent_window_for_trigger = parent_window.clone();
-
-    trigger_btn.connect_clicked(move |_| {
-        // Show dialog to get branch/ref
-        let dialog = gtk::Dialog::with_buttons(
-            Some("Trigger Workflow"),
-            Some(&parent_window_for_trigger),
-            gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
-            &[
-                ("Cancel", gtk::ResponseType::Cancel),
-                ("Trigger", gtk::ResponseType::Accept),
-            ],
-        );
-
-        let content = dialog.content_area();
-        content.set_spacing(12);
-        content.set_margin_top(12);
-        content.set_margin_bottom(12);
-        content.set_margin_start(12);
-        content.set_margin_end(12);
-
-        let info_label = gtk::Label::new(Some("Select branch to trigger:"));
-        info_label.set_halign(gtk::Align::Start);
-        content.append(&info_label);
-
-        // Branch dropdown with loading state
-        let branch_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-
-        let branch_dropdown = gtk::ComboBoxText::new();
-        branch_dropdown.set_hexpand(true);
-        branch_dropdown.append(Some("main"), "main");
-        branch_dropdown.set_active_id(Some("main"));
-        branch_box.append(&branch_dropdown);
-
-        let loading_spinner = gtk::Spinner::new();
-        loading_spinner.set_visible(false);
-        branch_box.append(&loading_spinner);
-
-        content.append(&branch_box);
-
-        let notice_label = gtk::Label::new(Some(
-            "Note: Triggered runs may take 10-30 seconds to appear",
-        ));
-        notice_label.add_css_class("dim-label");
-        notice_label.add_css_class("caption");
-        notice_label.set_halign(gtk::Align::Start);
-        notice_label.set_wrap(true);
-        content.append(&notice_label);
-
-        dialog.set_default_response(gtk::ResponseType::Accept);
-
-        // Fetch branches in the background
-        let client_for_branches = client_for_trigger.clone();
-        let owner_for_branches = owner_for_trigger.clone();
-        let repo_for_branches = repo_for_trigger.clone();
-        let branch_dropdown_clone = branch_dropdown.clone();
-        let loading_spinner_clone = loading_spinner.clone();
-
-        loading_spinner_clone.set_visible(true);
-        loading_spinner_clone.start();
-
-        // Use channel to communicate back to main thread
-        let (sender, receiver) = glib::MainContext::default()
-            .channel::<Result<Vec<crate::api::models::Branch>, String>>(glib::Priority::default());
-
-        crate::runtime_handle().spawn(async move {
-            let client_guard = client_for_branches.lock().clone();
-            let branches_result = client_guard
-                .list_branches(&owner_for_branches, &repo_for_branches)
-                .await;
-            let _ = sender.send(branches_result.map_err(|e| e.to_string()));
-        });
-
-        receiver.attach(None, move |branches_result| {
-            loading_spinner_clone.stop();
-            loading_spinner_clone.set_visible(false);
-
-            match branches_result {
-                Ok(branches) => {
-                    // Clear existing items
-                    branch_dropdown_clone.remove_all();
-
-                    // Add all branches
-                    for branch in branches {
-                        branch_dropdown_clone.append(Some(&branch.name), &branch.name);
-                    }
-
-                    // Try to select "main" or the first branch
-                    if !branch_dropdown_clone.set_active_id(Some("main")) {
-                        branch_dropdown_clone.set_active(Some(0));
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to fetch branches: {}", e);
-                    // Keep the default "main" option
-                }
-            }
-
-            glib::ControlFlow::Break
-        });
-
-        let client_clone = client_for_trigger.clone();
-        let owner_clone = owner_for_trigger.clone();
-        let repo_clone = repo_for_trigger.clone();
-
-        dialog.connect_response(move |dialog, response| {
-            if response == gtk::ResponseType::Accept {
-                let selected_branch = branch_dropdown
-                    .active_id()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "main".to_string());
-
-                let client = client_clone.clone();
-                let owner = owner_clone.clone();
-                let repo = repo_clone.clone();
-
-                // Create channel to communicate result back to main thread
-                let (sender, receiver) = glib::MainContext::default()
-                    .channel::<Result<String, String>>(glib::Priority::default());
-
-                crate::runtime_handle().spawn(async move {
-                    let client_guard = client.lock().clone();
-                    let workflow_id_str = workflow_id_for_trigger.to_string();
-                    let result = client_guard
-                        .dispatch_workflow(&owner, &repo, &workflow_id_str, &selected_branch, None)
-                        .await;
-
-                    match result {
-                        Ok(_) => {
-                            let _ = sender.send(Ok(selected_branch));
-                        }
-                        Err(e) => {
-                            let _ = sender.send(Err(format!("Failed to trigger workflow: {}", e)));
-                        }
-                    }
-                });
-
-                receiver.attach(None, move |result| {
-                    match result {
-                        Ok(branch_name) => {
-                            info!("Workflow triggered successfully on branch: {}", branch_name);
-                        }
-                        Err(error_msg) => {
-                            error!("{}", error_msg);
-                            let err_dialog = gtk::MessageDialog::new(
-                                None::<&gtk::Window>,
-                                gtk::DialogFlags::MODAL,
-                                gtk::MessageType::Error,
-                                gtk::ButtonsType::Ok,
-                                &error_msg,
-                            );
-                            err_dialog.present();
-                        }
-                    }
-                    glib::ControlFlow::Break
-                });
-            }
-
-            dialog.close();
-        });
-
-        dialog.present();
-    });
 
     header_box.append(&trigger_btn);
 
@@ -272,15 +107,37 @@ pub fn create_workflow_expander_row(
     expander.set_child(Some(&runs_box));
     main_box.append(&expander);
 
+    // Clone for trigger button (before expanded_notify consumes them)
+    let client_for_trigger = client.clone();
+    let owner_for_trigger = owner.to_string();
+    let repo_for_trigger = repo.to_string();
+    let workflow_id_for_trigger = workflow.id;
+    let workflow_name_for_trigger = workflow.name.clone();
+    let parent_window_for_trigger = parent_window.clone();
+    let toast_overlay_for_trigger = toast_overlay.clone();
+    let cache_for_trigger = cache.clone();
+    let expander_for_trigger = expander.clone();
+    let runs_box_for_trigger = runs_box.clone();
+
     // Load runs when expander is activated
-    let client_clone = client.clone();
-    let owner = owner.to_string();
-    let repo_name = repo.to_string();
     let workflow_id = workflow.id;
-    let runs_box_clone = runs_box.clone();
-    let parent_window = parent_window.clone();
-    let status_badge_clone = status_badge.clone();
-    let cache_clone = cache.clone();
+    let owner_string = owner.to_string();
+    let repo_string = repo.to_string();
+    let client_shared = client.clone();
+    let runs_box_shared = runs_box.clone();
+    let parent_window_shared = parent_window.clone();
+    let status_badge_shared = status_badge.clone();
+    let cache_shared = cache.clone();
+    let toast_overlay_shared = toast_overlay.clone();
+
+    let owner_for_signal = owner_string.clone();
+    let repo_for_signal = repo_string.clone();
+    let client_for_signal = client_shared.clone();
+    let runs_box_for_signal = runs_box_shared.clone();
+    let parent_window_for_signal = parent_window_shared.clone();
+    let status_badge_for_signal = status_badge_shared.clone();
+    let cache_for_signal = cache_shared.clone();
+    let toast_overlay_for_signal = toast_overlay_shared.clone();
 
     // Track if we're programmatically expanding (to avoid triggering load)
     let is_programmatic_expand = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -296,32 +153,278 @@ pub fn create_workflow_expander_row(
             return;
         }
 
-        // Check if already loaded
-        let first_child = runs_box_clone.first_child();
-        if let Some(child) = first_child {
-            if child.is::<gtk::Label>() {
-                // Still has placeholder, load runs
-                load_workflow_runs(LoadRunsParams {
-                    client: client_clone.clone(),
-                    owner: owner.clone(),
-                    repo: repo_name.clone(),
-                    workflow_id,
-                    runs_box: runs_box_clone.clone(),
-                    parent_window: parent_window.clone(),
-                    status_badge: Some(status_badge_clone.clone()),
-                    expander: exp.clone(),
-                    cache: cache_clone.clone(),
-                });
+        let force_refresh = unsafe {
+            exp.steal_data::<bool>("actioneer-force-refresh")
+                .unwrap_or(false)
+        };
+
+        let mut should_load = force_refresh;
+        if !should_load {
+            match runs_box_for_signal.first_child() {
+                None => should_load = true,
+                Some(child) if child.is::<gtk::Label>() => should_load = true,
+                _ => {}
             }
+        }
+
+        if should_load {
+            load_workflow_runs(LoadRunsParams {
+                client: client_for_signal.clone(),
+                owner: owner_for_signal.clone(),
+                repo: repo_for_signal.clone(),
+                workflow_id,
+                runs_box: runs_box_for_signal.clone(),
+                parent_window: parent_window_for_signal.clone(),
+                status_badge: Some(status_badge_for_signal.clone()),
+                expander: exp.clone(),
+                cache: cache_for_signal.clone(),
+                toast_overlay: toast_overlay_for_signal.clone(),
+                bypass_cache: force_refresh,
+            });
         }
     });
 
-    // Expand if it was previously expanded (programmatic - don't trigger load)
+    // Expand if it was previously expanded and ensure runs are loaded
     if should_expand {
         is_programmatic_expand.set(true);
         expander.set_expanded(true);
         is_programmatic_expand.set(false);
+
+        if let Some(child) = runs_box.first_child() {
+            if child.is::<gtk::Label>() {
+                load_workflow_runs(LoadRunsParams {
+                    client: client_shared.clone(),
+                    owner: owner_string.clone(),
+                    repo: repo_string.clone(),
+                    workflow_id,
+                    runs_box: runs_box_shared.clone(),
+                    parent_window: parent_window_shared.clone(),
+                    status_badge: Some(status_badge_shared.clone()),
+                    expander: expander.clone(),
+                    cache: cache_shared.clone(),
+                    toast_overlay: toast_overlay_shared.clone(),
+                    bypass_cache: true,
+                });
+            }
+        }
     }
+
+    // Connect trigger button (clones were made earlier before expanded_notify)
+    trigger_btn.connect_clicked(move |_| {
+        // Clone everything needed for this closure
+        let expander = expander_for_trigger.clone();
+        let runs_box = runs_box_for_trigger.clone();
+        let cache = cache_for_trigger.clone();
+        let client = client_for_trigger.clone();
+        let owner = owner_for_trigger.clone();
+        let repo = repo_for_trigger.clone();
+        let workflow_id = workflow_id_for_trigger;
+        let toast_overlay = toast_overlay_for_trigger.clone();
+        let workflow_name = workflow_name_for_trigger.clone();
+        let parent_window = parent_window_for_trigger.clone();
+
+        // Show dialog to get branch/ref
+        let dialog = gtk::Dialog::with_buttons(
+            Some("Trigger Workflow"),
+            Some(&parent_window),
+            gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+            &[
+                ("Cancel", gtk::ResponseType::Cancel),
+                ("Trigger", gtk::ResponseType::Accept),
+            ],
+        );
+        dialog.set_default_response(gtk::ResponseType::Accept);
+        dialog.set_modal(true);
+
+        let content_area = dialog.content_area();
+        content_area.set_margin_start(12);
+        content_area.set_margin_end(12);
+        content_area.set_margin_top(12);
+        content_area.set_margin_bottom(12);
+
+        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 12);
+
+        let info_label = gtk::Label::new(Some(&format!(
+            "This will trigger the \"{}\" workflow.\n\nTriggered runs typically appear within 10-30 seconds.",
+            workflow_name
+        )));
+        info_label.set_wrap(true);
+        info_label.set_xalign(0.0);
+        vbox.append(&info_label);
+
+        // Branch selection
+        let branch_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let branch_label = gtk::Label::new(Some("Branch or ref:"));
+        branch_label.set_xalign(0.0);
+        branch_box.append(&branch_label);
+
+        let branch_dropdown = gtk::DropDown::from_strings(&["main", "master"]);
+        branch_dropdown.set_selected(0);
+        branch_box.append(&branch_dropdown);
+
+        // Fetch branches asynchronously
+        let client_for_branches = client.clone();
+        let owner_for_branches = owner.clone();
+        let repo_for_branches = repo.clone();
+        let dropdown_for_branches = branch_dropdown.clone();
+
+        let (branch_sender, branch_receiver) = glib::MainContext::default()
+            .channel::<Vec<String>>(glib::Priority::default());
+
+        branch_receiver.attach(None, move |branch_names| {
+            let str_refs: Vec<&str> = branch_names.iter().map(|s| s.as_str()).collect();
+            dropdown_for_branches.set_model(Some(&gtk::StringList::new(&str_refs)));
+            glib::ControlFlow::Break
+        });
+
+        crate::runtime_handle().spawn(async move {
+            let client_guard = client_for_branches.lock().clone();
+            if let Ok(branches) = client_guard.list_branches(&owner_for_branches, &repo_for_branches).await {
+                let branch_names: Vec<String> = branches.iter().map(|b| b.name.clone()).collect();
+                let _ = branch_sender.send(branch_names);
+            }
+        });
+
+        vbox.append(&branch_box);
+        content_area.append(&vbox);
+
+        let client_clone = client.clone();
+        let owner_clone = owner.clone();
+        let repo_clone = repo.clone();
+        let toast_overlay_clone = toast_overlay.clone();
+        let workflow_name_clone = workflow_name.clone();
+        let cache_clone = cache.clone();
+        let expander_clone = expander.clone();
+        let runs_box_clone = runs_box.clone();
+        let parent_window_clone = parent_window.clone();
+
+        dialog.connect_response(move |dialog, response| {
+            if response == gtk::ResponseType::Accept {
+                let selected_branch = branch_dropdown
+                    .selected_item()
+                    .and_then(|obj| obj.downcast::<gtk::StringObject>().ok())
+                    .map(|so| so.string().to_string())
+                    .unwrap_or_else(|| "main".to_string());
+
+                let client = client_clone.clone();
+                let owner = owner_clone.clone();
+                let repo = repo_clone.clone();
+                let branch = selected_branch.clone();
+                let workflow_id_str = workflow_id.to_string();
+
+                let (sender, receiver) = glib::MainContext::default()
+                    .channel::<Result<String, String>>(glib::Priority::default());
+
+                crate::runtime_handle().spawn(async move {
+                    let client_guard = client.lock().clone();
+                    match client_guard.dispatch_workflow(&owner, &repo, &workflow_id_str, &branch, None).await {
+                        Ok(_) => {
+                            let _ = sender.send(Ok(branch));
+                        }
+                        Err(e) => {
+                            let _ = sender.send(Err(format!("Failed to trigger workflow: {}", e)));
+                        }
+                    }
+                });
+
+                let toast_overlay = toast_overlay_clone.clone();
+                let workflow_name = workflow_name_clone.clone();
+                let cache = cache_clone.clone();
+                let owner = owner_clone.clone();
+                let repo = repo_clone.clone();
+                let expander = expander_clone.clone();
+                let runs_box = runs_box_clone.clone();
+                let client = client_clone.clone();
+                let parent_window = parent_window_clone.clone();
+
+                receiver.attach(None, move |result| {
+                    match result {
+                        Ok(branch_name) => {
+                            info!("Workflow triggered successfully on branch: {}", branch_name);
+
+                            // Invalidate cache and force reload if expanded
+                            let cache = cache.clone();
+                            let cache_key = format!("{}/{}", owner, repo);
+                            let expander = expander.clone();
+                            let runs_box = runs_box.clone();
+                            let client_for_reload = client.clone();
+                            let owner_for_reload = owner.clone();
+                            let repo_for_reload = repo.clone();
+                            let parent_window_for_reload = parent_window.clone();
+                            let toast_overlay_for_reload = toast_overlay.clone();
+                            let cache_for_reload = cache.clone();
+
+                            crate::runtime_handle().spawn(async move {
+                                // Clear cache
+                                cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
+                            });
+
+                            // Force reload if expander is currently expanded
+                            glib::idle_add_local_once(move || {
+                                if expander.is_expanded() {
+                                    info!("Reloading runs after workflow trigger");
+                                    // Clear the runs box and reload
+                                    while let Some(child) = runs_box.first_child() {
+                                        runs_box.remove(&child);
+                                    }
+                                    let spinner = gtk::Spinner::new();
+                                    spinner.start();
+                                    spinner.set_margin_top(8);
+                                    spinner.set_margin_bottom(8);
+                                    runs_box.append(&spinner);
+
+                                    // Directly call load_workflow_runs instead of toggling
+                                    load_workflow_runs(LoadRunsParams {
+                                        client: client_for_reload.clone(),
+                                        owner: owner_for_reload.clone(),
+                                        repo: repo_for_reload.clone(),
+                                        workflow_id,
+                                        runs_box: runs_box.clone(),
+                                        parent_window: parent_window_for_reload.clone(),
+                                        status_badge: None,  // Not available in this scope
+                                        expander: expander.clone(),
+                                        cache: cache_for_reload.clone(),
+                                        toast_overlay: toast_overlay_for_reload.clone(),
+                                        bypass_cache: true,
+                                    });
+                                }
+                            });
+
+                            // Show success toast
+                            let toast_overlay = toast_overlay.clone();
+                            let workflow_name = workflow_name.clone();
+                            let branch = branch_name.clone();
+                            glib::MainContext::default().spawn_local(async move {
+                                let toast = adw::Toast::new(&format!(
+                                    "✓ Workflow '{}' triggered on branch '{}'",
+                                    workflow_name, branch
+                                ));
+                                toast.set_timeout(3);
+                                toast_overlay.add_toast(toast);
+                            });
+                        }
+                        Err(error_msg) => {
+                            error!("{}", error_msg);
+
+                            // Show error toast
+                            let toast_overlay = toast_overlay.clone();
+                            let error = error_msg.clone();
+                            glib::MainContext::default().spawn_local(async move {
+                                let toast = adw::Toast::new(&format!("✗ Failed to trigger workflow: {}", error));
+                                toast.set_timeout(5);
+                                toast_overlay.add_toast(toast);
+                            });
+                        }
+                    }
+                    glib::ControlFlow::Break
+                });
+            }
+
+            dialog.close();
+        });
+
+        dialog.present();
+    });
 
     row.set_child(Some(&main_box));
     row
@@ -338,6 +441,8 @@ fn load_workflow_runs(params: LoadRunsParams) {
         status_badge,
         expander,
         cache,
+        toast_overlay,
+        bypass_cache,
     } = params;
 
     // Show loading indicator
@@ -446,6 +551,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
                         &parent_window_clone,
                         &cache,
                         workflow_id,
+                        &toast_overlay,
                     );
                     runs_box.append(&run_row);
                 }
@@ -483,6 +589,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
                 let parent_window_retry = parent_window_clone.clone();
                 let expander_retry = expander_for_retry.clone();
                 let cache_retry = cache.clone();
+                let toast_overlay_retry = toast_overlay.clone();
 
                 retry_button.connect_clicked(move |_| {
                     // Clear and reload
@@ -499,6 +606,8 @@ fn load_workflow_runs(params: LoadRunsParams) {
                         status_badge: None,
                         expander: expander_retry.clone(),
                         cache: cache_retry.clone(),
+                        toast_overlay: toast_overlay_retry.clone(),
+                        bypass_cache: true,
                     });
                 });
 
@@ -513,18 +622,37 @@ fn load_workflow_runs(params: LoadRunsParams) {
     crate::runtime_handle().spawn(async move {
         let cache_key = format!("{}/{}", owner_for_spawn, repo_for_spawn);
 
-        // Try cache first
-        if let Some(cached_runs) = cache_for_spawn.runs(&cache_key, workflow_id).await {
-            info!("Using cached runs for workflow {}", workflow_id);
-            let _ = sender.send(Ok(cached_runs));
-            return;
+        // Try cache first unless explicitly bypassed
+        if !bypass_cache {
+            if let Some(cached_runs) = cache_for_spawn.runs(&cache_key, workflow_id).await {
+                if !cached_runs.is_empty() {
+                    info!("Using cached runs for workflow {}", workflow_id);
+                    let _ = sender.send(Ok(cached_runs));
+                    return;
+                } else {
+                    info!(
+                        "Cache invalidated for workflow {}, fetching fresh data",
+                        workflow_id
+                    );
+                }
+            }
+        } else {
+            info!("Bypassing run cache for workflow {}", workflow_id);
         }
 
-        // Cache miss - fetch from API
+        // Cache miss or empty cache - fetch from API
         let client_guard = client_for_spawn.lock().clone();
         let result = client_guard
             .list_runs(&owner_for_spawn, &repo_for_spawn, workflow_id)
             .await;
+
+        // Store in cache after successful fetch
+        if let Ok(ref runs) = result {
+            cache_for_spawn
+                .store_runs(runs.clone(), &cache_key, workflow_id)
+                .await;
+        }
+
         let _ = sender.send(result);
     });
 }
@@ -537,6 +665,7 @@ fn create_run_expander_row(
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
     workflow_id: i64,
+    toast_overlay: &adw::ToastOverlay,
 ) -> gtk::Box {
     let run_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     run_box.set_margin_top(4);
@@ -639,6 +768,8 @@ fn create_run_expander_row(
         let run_id = run.id;
         let parent_window = parent_window.clone();
         let run_title = format_run_title(run);
+        let toast_overlay_clone = toast_overlay.clone();
+        let cache_clone = cache.clone();
 
         rerun_btn.connect_clicked(move |btn| {
             // Show confirmation dialog
@@ -655,6 +786,9 @@ fn create_run_expander_row(
             let client = client_clone.clone();
             let owner = owner.clone();
             let repo = repo_name.clone();
+            let toast_overlay_for_dialog = toast_overlay_clone.clone();
+            let run_title_for_dialog = run_title.clone();
+            let cache_for_dialog = cache_clone.clone();
 
             dialog.connect_response(move |dialog, response| {
                 dialog.close();
@@ -663,11 +797,43 @@ fn create_run_expander_row(
                     let client = client.clone();
                     let owner = owner.clone();
                     let repo = repo.clone();
+                    let toast_overlay = toast_overlay_for_dialog.clone();
+                    let run_title_clone = run_title_for_dialog.clone();
+                    let cache = cache_for_dialog.clone();
+                    let owner_for_cache = owner.clone();
+                    let repo_for_cache = repo.clone();
+
+                    // Create channel to send result back to main thread
+                    let (sender, receiver) =
+                        glib::MainContext::default().channel(glib::Priority::default());
+
+                    receiver.attach(None, move |success: bool| {
+                        if success {
+                            let toast =
+                                adw::Toast::new(&format!("✓ Re-running '{}'", run_title_clone));
+                            toast.set_timeout(3);
+                            toast_overlay.add_toast(toast);
+                        } else {
+                            let toast = adw::Toast::new("✗ Failed to re-run workflow");
+                            toast.set_timeout(5);
+                            toast_overlay.add_toast(toast);
+                        }
+                        glib::ControlFlow::Break
+                    });
 
                     crate::runtime_handle().spawn(async move {
                         let client_guard = client.lock().clone();
-                        if let Err(e) = client_guard.rerun_workflow(&owner, &repo, run_id).await {
-                            error!("Failed to re-run workflow: {}", e);
+                        match client_guard.rerun_workflow(&owner, &repo, run_id).await {
+                            Ok(_) => {
+                                // Invalidate cache for this workflow
+                                let cache_key = format!("{}/{}", owner_for_cache, repo_for_cache);
+                                cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
+                                let _ = sender.send(true);
+                            }
+                            Err(e) => {
+                                error!("Failed to re-run workflow: {}", e);
+                                let _ = sender.send(false);
+                            }
                         }
                     });
                 }
@@ -693,6 +859,8 @@ fn create_run_expander_row(
         let run_id = run.id;
         let parent_window = parent_window.clone();
         let run_title = format_run_title(run);
+        let toast_overlay_clone = toast_overlay.clone();
+        let cache_clone = cache.clone();
 
         rerun_failed_btn.connect_clicked(move |btn| {
             // Show confirmation dialog
@@ -712,6 +880,9 @@ fn create_run_expander_row(
             let client = client_clone.clone();
             let owner = owner.clone();
             let repo = repo_name.clone();
+            let toast_overlay_for_dialog = toast_overlay_clone.clone();
+            let run_title_for_dialog = run_title.clone();
+            let cache_for_dialog = cache_clone.clone();
 
             dialog.connect_response(move |dialog, response| {
                 dialog.close();
@@ -720,12 +891,45 @@ fn create_run_expander_row(
                     let client = client.clone();
                     let owner = owner.clone();
                     let repo = repo.clone();
+                    let toast_overlay = toast_overlay_for_dialog.clone();
+                    let run_title_clone = run_title_for_dialog.clone();
+                    let cache = cache_for_dialog.clone();
+                    let owner_for_cache = owner.clone();
+                    let repo_for_cache = repo.clone();
+
+                    // Create channel to send result back to main thread
+                    let (sender, receiver) =
+                        glib::MainContext::default().channel(glib::Priority::default());
+
+                    receiver.attach(None, move |success: bool| {
+                        if success {
+                            let toast = adw::Toast::new(&format!(
+                                "✓ Re-running failed jobs for '{}'",
+                                run_title_clone
+                            ));
+                            toast.set_timeout(3);
+                            toast_overlay.add_toast(toast);
+                        } else {
+                            let toast = adw::Toast::new("✗ Failed to re-run failed jobs");
+                            toast.set_timeout(5);
+                            toast_overlay.add_toast(toast);
+                        }
+                        glib::ControlFlow::Break
+                    });
 
                     crate::runtime_handle().spawn(async move {
                         let client_guard = client.lock().clone();
-                        if let Err(e) = client_guard.rerun_failed_jobs(&owner, &repo, run_id).await
-                        {
-                            error!("Failed to re-run failed jobs: {}", e);
+                        match client_guard.rerun_failed_jobs(&owner, &repo, run_id).await {
+                            Ok(_) => {
+                                // Invalidate cache
+                                let cache_key = format!("{}/{}", owner_for_cache, repo_for_cache);
+                                cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
+                                let _ = sender.send(true);
+                            }
+                            Err(e) => {
+                                error!("Failed to re-run failed jobs: {}", e);
+                                let _ = sender.send(false);
+                            }
                         }
                     });
                 }
@@ -751,6 +955,8 @@ fn create_run_expander_row(
         let run_id = run.id;
         let parent_window = parent_window.clone();
         let run_title = format_run_title(run);
+        let toast_overlay_clone = toast_overlay.clone();
+        let cache_clone = cache.clone();
 
         cancel_btn.connect_clicked(move |btn| {
             // Show confirmation dialog
@@ -767,6 +973,9 @@ fn create_run_expander_row(
             let client = client_clone.clone();
             let owner = owner.clone();
             let repo = repo_name.clone();
+            let toast_overlay_for_dialog = toast_overlay_clone.clone();
+            let run_title_for_dialog = run_title.clone();
+            let cache_for_dialog = cache_clone.clone();
 
             dialog.connect_response(move |dialog, response| {
                 dialog.close();
@@ -775,11 +984,41 @@ fn create_run_expander_row(
                     let client = client.clone();
                     let owner = owner.clone();
                     let repo = repo.clone();
+                    let toast_overlay = toast_overlay_for_dialog.clone();
+                    let run_title_clone = run_title_for_dialog.clone();
+                    let cache = cache_for_dialog.clone();
+                    let owner_for_cache = owner.clone();
+                    let repo_for_cache = repo.clone();
+
+                    // Create channel to send result back to main thread
+                    let (sender, receiver) = glib::MainContext::default().channel(glib::Priority::default());
+
+                    receiver.attach(None, move |success: bool| {
+                        if success {
+                            let toast = adw::Toast::new(&format!("✓ Cancelled run '{}'", run_title_clone));
+                            toast.set_timeout(3);
+                            toast_overlay.add_toast(toast);
+                        } else {
+                            let toast = adw::Toast::new("✗ Failed to cancel run");
+                            toast.set_timeout(5);
+                            toast_overlay.add_toast(toast);
+                        }
+                        glib::ControlFlow::Break
+                    });
 
                     crate::runtime_handle().spawn(async move {
                         let client_guard = client.lock().clone();
-                        if let Err(e) = client_guard.cancel_run(&owner, &repo, run_id).await {
-                            error!("Failed to cancel run: {}", e);
+                        match client_guard.cancel_run(&owner, &repo, run_id).await {
+                            Ok(_) => {
+                                // Invalidate cache
+                                let cache_key = format!("{}/{}", owner_for_cache, repo_for_cache);
+                                cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
+                                let _ = sender.send(true);
+                            }
+                            Err(e) => {
+                                error!("Failed to cancel run: {}", e);
+                                let _ = sender.send(false);
+                            }
                         }
                     });
                 }
@@ -1136,13 +1375,13 @@ fn get_run_status_class(run: &WorkflowRun) -> &'static str {
             "success" => "success",
             "failure" => "error",
             "cancelled" => "warning",
-            _ => "",
+            _ => "dim-label", // Default for unknown conclusions
         };
     }
     if let Some("in_progress") = run.status.as_deref() {
         return "accent";
     }
-    ""
+    "dim-label" // Default instead of empty string
 }
 
 fn get_job_status_icon(job: &Job) -> &'static str {

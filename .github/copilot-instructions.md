@@ -123,3 +123,177 @@ Audit notes for agents
 - When adding large async tasks, prefer `for_each_concurrent` with a concurrency cap (see `spawn_repo_status_tasks`) to avoid DoS and rate limit spikes.
 
 If anything here is unclear or you need examples for a particular change (adding endpoints, changing auth, updating a UI pane), tell me which area to expand and I will update this file accordingly.
+
+
+# Best Practices for Developing GNOME Applications with Rust and Libadwaita
+
+This guide provides a comprehensive set of best practices for an AI agent to develop high-quality GNOME applications using Rust and libadwaita.
+
+## 1. Project Setup and Dependencies
+
+### 1.1. Initial Setup
+
+- **Use `cargo` to create a new Rust project:**
+  ```bash
+  cargo new my-gnome-app
+  cd my-gnome-app
+  ```
+
+- **Add necessary dependencies to `Cargo.toml`:**
+  ```toml
+  [dependencies]
+  gtk = { version = "0.8.0", package = "gtk4" }
+  adw = { version = "0.6.0", package = "libadwaita", features = ["v1_5"] }
+
+  [build-dependencies]
+  glib-build-utils = "0.18.0"
+  ```
+  *Note: Ensure `gtk4` and `libadwaita` crate versions are compatible.*
+
+### 1.2. System Dependencies
+
+- Install `libadwaita` development libraries.
+  - **Fedora:** `sudo dnf install libadwaita-devel`
+  - **Debian/Ubuntu:** `sudo apt install libadwaita-1-dev`
+  - **Arch Linux:** `sudo pacman -S libadwaita`
+
+## 2. Application Structure and Idioms
+
+### 2.1. Application Entry Point
+
+- Use `adw::Application` instead of `gtk::Application`. This correctly sets up styles, icons, and translations.
+- The application ID must be in reverse DNS format (e.g., `org.gnome.MyCoolApp`).
+
+**Example `main.rs`:**
+```rust
+use adw::prelude::*;
+use adw::Application;
+use gtk::{ApplicationWindow, Builder};
+
+fn main() {
+    let application = Application::builder()
+        .application_id("com.example.MyGnomeApp")
+        .build();
+
+    application.connect_startup(|_| {
+        adw::init();
+    });
+
+    application.connect_activate(|app| {
+        let builder = Builder::from_string(include_str!("main.ui"));
+        let window: ApplicationWindow = builder.object("window").unwrap();
+        window.set_application(Some(app));
+        window.present();
+    });
+
+    application.run();
+}
+```
+
+### 2.2. UI Definition with Composite Templates
+
+- **Separate UI from logic.** Use `.ui` files (XML format) to define the user interface.
+- **Use composite templates** to link UI definitions to Rust widget code.
+
+**Example `main.ui`:**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <template class="MyApplicationWindow" parent="AdwApplicationWindow">
+    <property name="title">My GNOME App</property>
+    <property name="default-width">600</property>
+    <property name="default-height">400</property>
+    <child>
+      <object class="AdwHeaderBar" id="header_bar"/>
+    </child>
+  </template>
+</interface>
+```
+
+### 2.3. Resource Management
+
+- **Embed resources** like `.ui` files, icons, and stylesheets directly into the binary using GResource.
+- Create a `gresource.xml` file:
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <gresources>
+    <gresource prefix="/com/example/MyGnomeApp">
+      <file>main.ui</file>
+    </gresource>
+  </gresources>
+  ```
+- **Compile resources in `build.rs`:**
+  ```rust
+  fn main() {
+      glib_build_utils::compile_resources(
+          &["src"],
+          "src/gresource.xml",
+          "com.example.MyGnomeApp.gresource",
+      );
+  }
+  ```
+
+## 3. Adherence to GNOME HIG
+
+### 3.1. Use Libadwaita Widgets
+
+- Prioritize using `libadwaita` widgets over standard GTK4 widgets whenever an equivalent exists.
+- Examples: `AdwApplicationWindow`, `AdwHeaderBar`, `AdwPreferencesWindow`, `AdwToastOverlay`.
+
+### 3.2. Styling
+
+- **Avoid inline styling.** Do not set margins, padding, or colors directly in Rust code.
+- **Use CSS classes.** Add style classes to widgets and define styles in a separate CSS file.
+- **Leverage built-in styles:** Libadwaita provides styles like `.card`, `.pill`, etc.
+
+### 3.3. Responsiveness
+
+- Use adaptive widgets like `AdwFlap` and `AdwSqueezer` to create layouts that work on different screen sizes.
+
+## 4. Asynchronous Operations
+
+- For long-running tasks (e.g., network requests, file I/O), use asynchronous operations to avoid blocking the UI thread.
+- Use `glib::spawn_future_local` for this.
+
+**Example:**
+```rust
+glib::spawn_future_local(clone!(@weak self as widget => async move {
+    // Perform async operation
+    let result = some_async_function().await;
+    // Update UI on the main thread
+    widget.update_ui(result);
+}));
+```
+
+## 5. State Management
+
+- For simple applications, manage state within your widget structs.
+- For more complex applications, consider using a separate state management struct or a library like `relm4`.
+
+## 6. Internationalization (i18n)
+
+- Use `gettext` for translations.
+- Mark translatable strings in your code using the `gettext()` macro.
+- Extract strings into `.pot` files and create `.po` files for each language.
+
+## 7. Packaging and Distribution
+
+- **Flatpak is the preferred format** for distributing GNOME apps.
+- Create a Flatpak manifest (`.json` or `.yaml` file) for your application.
+- Use the Flatpak Rust extension for easier integration.
+- Publish on Flathub to reach a wide audience.
+
+## 8. Development Tools
+
+- **GNOME Builder:** The official IDE for GNOME development, with excellent integration for Flatpak, GResource, and `.ui` files.
+- **Workbench:** An indispensable tool for prototyping and learning about GTK and libadwaita widgets.
+- **VSCode:** A viable alternative with extensions for Rust and Flatpak.
+
+## 9. Code Quality and Best Practices
+
+- **Follow Rust idioms.** Write clean, safe, and idiomatic Rust code.
+- **Handle errors gracefully.** Use `Result` and `Option` to handle potential failures.
+- **Use `clone!` macro** to avoid ownership issues in closures and callbacks.
+- **Adhere to XDG Base Directory Specification** for storing user data, configuration, and cache.
+
+By following these best practices, an AI agent can create a robust, modern, and well-integrated GNOME application that provides an excellent user experience on the Linux desktop.

@@ -32,6 +32,7 @@ pub struct RepoDetailPane {
     buttons_box: gtk::Box,
     list_box: gtk::ListBox,
     root: gtk::Box,
+    toast_overlay: adw::ToastOverlay,
     loading: Arc<Mutex<bool>>, // Guard against re-entrant loads
     auto_refresh_source: Arc<Mutex<Option<glib::SourceId>>>, // Auto-refresh timer
     workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>, // Track workflows needing refresh
@@ -70,6 +71,8 @@ impl RepoDetailPane {
         list_box.set_margin_start(12);
         list_box.set_margin_end(12);
 
+        // Create ToastOverlay to wrap the content for showing feedback
+        let toast_overlay = adw::ToastOverlay::new();
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         let pane = Self {
@@ -87,6 +90,7 @@ impl RepoDetailPane {
             buttons_box: buttons_box.clone(),
             list_box: list_box.clone(),
             root: root.clone(),
+            toast_overlay: toast_overlay.clone(),
             loading: Arc::new(Mutex::new(false)),
             auto_refresh_source: Arc::new(Mutex::new(None)),
             workflows_with_active_runs: Arc::new(Mutex::new(HashSet::new())),
@@ -101,7 +105,7 @@ impl RepoDetailPane {
     }
 
     pub fn widget(&self) -> gtk::Widget {
-        self.root.clone().upcast::<gtk::Widget>()
+        self.toast_overlay.clone().upcast::<gtk::Widget>()
     }
 
     pub fn repo(&self) -> &Repo {
@@ -164,6 +168,9 @@ impl RepoDetailPane {
         clamp.set_child(Some(&scrolled));
 
         self.root.append(&clamp);
+
+        // Set the root as the child of toast_overlay so toasts can be shown
+        self.toast_overlay.set_child(Some(&self.root));
 
         self.connect_refresh_button(&refresh_button);
         self.connect_workflow_selected();
@@ -289,6 +296,7 @@ impl RepoDetailPane {
         let parent_window = self.parent.clone();
         let loading_guard = self.loading.clone();
         let cache = self.cache.clone();
+        let toast_overlay = self.toast_overlay.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -331,6 +339,7 @@ impl RepoDetailPane {
                         &repo_name,
                         &parent_window,
                         &cache,
+                        &toast_overlay,
                     );
                 }
                 Err(e) => {
@@ -378,6 +387,7 @@ impl RepoDetailPane {
         let parent_window = self.parent.clone();
         let loading_guard = self.loading.clone();
         let cache = self.cache.clone();
+        let toast_overlay = self.toast_overlay.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -406,6 +416,7 @@ impl RepoDetailPane {
                             &repo_name,
                             &parent_window,
                             &cache,
+                            &toast_overlay,
                         );
                     }
                 }
@@ -439,6 +450,7 @@ impl RepoDetailPane {
         let parent_window = self.parent.clone();
         let loading_guard = self.loading.clone();
         let cache = self.cache.clone();
+        let toast_overlay = self.toast_overlay.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -460,6 +472,7 @@ impl RepoDetailPane {
             let parent_window = parent_window.clone();
             let loading_guard = loading_guard.clone();
             let cache = cache.clone();
+            let toast_overlay = toast_overlay.clone();
 
             // Show loading spinner
             callback_refs.show_loading(true);
@@ -473,6 +486,7 @@ impl RepoDetailPane {
             let repo_name_for_ui = repo_name.clone();
             let callback_refs_for_ui = callback_refs.clone();
             let parent_window_for_ui = parent_window.clone();
+            let toast_overlay_for_ui = toast_overlay.clone();
 
             receiver.attach(None, move |result| {
                 // Hide loading spinner
@@ -493,6 +507,7 @@ impl RepoDetailPane {
                             &repo_name_for_ui,
                             &parent_window_for_ui,
                             &cache,
+                            &toast_overlay_for_ui,
                         );
                     }
                     Err(e) => {
@@ -675,6 +690,10 @@ impl RepoDetailPane {
                                                     workflow_id
                                                 );
 
+                                                unsafe {
+                                                    expander
+                                                        .set_data("actioneer-force-refresh", true);
+                                                }
                                                 // Trigger re-expansion to fetch fresh data
                                                 expander.set_expanded(false);
                                                 expander.set_expanded(true);
@@ -762,6 +781,7 @@ fn update_workflows_list(
     repo: &str,
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
+    toast_overlay: &adw::ToastOverlay,
 ) {
     use std::collections::HashSet;
 
@@ -838,6 +858,7 @@ fn update_workflows_list(
             should_expand,
             parent_window,
             cache,
+            toast_overlay.clone(),
         );
         list_box.append(&expander_row);
     }
