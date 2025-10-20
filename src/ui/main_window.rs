@@ -550,30 +550,48 @@ impl MainWindow {
 
     fn connect_signout_button(&self, button: &gtk::Button) {
         let window = self.window.clone();
+        let client = self.client.clone();
 
         button.connect_clicked(move |_| {
-            let storage = TokenStorage::new();
+            // Show confirmation dialog first
+            let dialog = gtk::MessageDialog::new(
+                Some(&window),
+                gtk::DialogFlags::MODAL,
+                gtk::MessageType::Warning,
+                gtk::ButtonsType::YesNo,
+                "Are you sure you want to sign out?\n\nYou will need to sign in again to continue.",
+            );
 
-            if let Ok(storage) = storage {
-                if let Err(e) = storage.delete_token() {
-                    error!("Failed to delete token: {}", e);
-                } else {
-                    info!("Signed out successfully");
+            let window_clone = window.clone();
+            let client_clone = client.clone();
 
-                    // Show dialog
-                    let dialog = gtk::MessageDialog::new(
-                        Some(&window),
-                        gtk::DialogFlags::MODAL,
-                        gtk::MessageType::Info,
-                        gtk::ButtonsType::Ok,
-                        "You have been signed out. Restart the application to sign in again.",
-                    );
-                    dialog.connect_response(|dialog, _| {
-                        dialog.close();
-                    });
-                    dialog.present();
+            dialog.connect_response(move |dialog, response| {
+                dialog.close();
+
+                if response == gtk::ResponseType::Yes {
+                    let storage = TokenStorage::new();
+
+                    if let Ok(storage) = storage {
+                        if let Err(e) = storage.delete_token() {
+                            error!("Failed to delete token: {}", e);
+                        } else {
+                            info!("Signed out successfully");
+
+                            // Clear client
+                            *client_clone.lock() = None;
+
+                            // Close the main window
+                            window_clone.close();
+
+                            // Show auth window to sign in again
+                            let auth_window = AuthWindow::new(None::<&gtk::Window>);
+                            auth_window.present();
+                        }
+                    }
                 }
-            }
+            });
+
+            dialog.present();
         });
     }
 

@@ -63,10 +63,20 @@ impl AuthWindow {
         title.add_css_class("title-1");
         content_box.append(&title);
 
+        // Status with spinner in a horizontal box
+        let status_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        status_box.set_halign(gtk::Align::Center);
+
         let status_label = gtk::Label::new(Some("Initializing authentication..."));
         status_label.set_wrap(true);
         status_label.set_justify(gtk::Justification::Center);
-        content_box.append(&status_label);
+        status_box.append(&status_label);
+
+        let spinner = gtk::Spinner::new();
+        spinner.set_visible(false);
+        status_box.append(&spinner);
+
+        content_box.append(&status_box);
 
         let code_box = gtk::Box::new(gtk::Orientation::Vertical, 12);
         code_box.set_visible(false);
@@ -74,10 +84,39 @@ impl AuthWindow {
         let code_label = gtk::Label::new(Some("Enter this code on GitHub:"));
         code_box.append(&code_label);
 
+        // Code display with copy button
+        let code_display_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        code_display_box.set_halign(gtk::Align::Center);
+
         let user_code = gtk::Label::new(Some(""));
         user_code.add_css_class("title-2");
         user_code.set_selectable(true);
-        code_box.append(&user_code);
+        code_display_box.append(&user_code);
+
+        let copy_button = gtk::Button::from_icon_name("edit-copy-symbolic");
+        copy_button.set_tooltip_text(Some("Copy code to clipboard"));
+        copy_button.add_css_class("flat");
+        copy_button.add_css_class("circular");
+        copy_button.set_visible(false);
+
+        let user_code_for_copy = user_code.clone();
+        copy_button.connect_clicked(move |btn| {
+            let code_text = user_code_for_copy.text();
+            let clipboard = btn.clipboard();
+            clipboard.set_text(&code_text);
+            // Visual feedback
+            btn.set_icon_name("emblem-ok-symbolic");
+            glib::timeout_add_seconds_local(2, {
+                let btn = btn.clone();
+                move || {
+                    btn.set_icon_name("edit-copy-symbolic");
+                    glib::ControlFlow::Break
+                }
+            });
+        });
+
+        code_display_box.append(&copy_button);
+        code_box.append(&code_display_box);
 
         content_box.append(&code_box);
 
@@ -86,10 +125,6 @@ impl AuthWindow {
         open_button.add_css_class("pill");
         open_button.set_visible(false);
         content_box.append(&open_button);
-
-        let spinner = gtk::Spinner::new();
-        spinner.set_visible(false);
-        content_box.append(&spinner);
 
         let cancel_button = gtk::Button::with_label("Cancel");
         content_box.append(&cancel_button);
@@ -113,6 +148,7 @@ impl AuthWindow {
         let code_box_clone = code_box.clone();
         let user_code_clone = user_code.clone();
         let open_button_clone = open_button.clone();
+        let copy_button_clone = copy_button.clone();
         let spinner_clone = spinner.clone();
         let window_clone = self.window.clone();
 
@@ -122,6 +158,7 @@ impl AuthWindow {
             code_box_clone.set_visible(false);
             user_code_clone.set_text("");
             open_button_clone.set_visible(false);
+            copy_button_clone.set_visible(false);
             spinner_clone.stop();
             spinner_clone.set_visible(false);
 
@@ -150,6 +187,7 @@ impl AuthWindow {
                 let code_box = code_box_clone.clone();
                 let user_code = user_code_clone.clone();
                 let open_button = open_button_clone.clone();
+                let copy_button = copy_button_clone.clone();
                 let spinner = spinner_clone.clone();
                 let window = window_clone.clone();
 
@@ -159,6 +197,7 @@ impl AuthWindow {
                         user_code.set_text(&info.user_code);
                         code_box.set_visible(true);
                         open_button.set_visible(true);
+                        copy_button.set_visible(true);
                         spinner.set_visible(true);
                         spinner.start();
                         status.set_text("Open GitHub in your browser and enter the code.");

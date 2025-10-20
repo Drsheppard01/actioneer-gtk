@@ -210,6 +210,96 @@
 
 ## Recent Updates (Current Session - Continued)
 
+### Session 3: Layout Fix for Badges and Buttons
+
+**Completed Features:**
+
+1. **Run Row Layout Fix** ✅ - Fixed badge and button positioning
+   - Job summary badges now appear immediately after run title
+   - Action buttons (open, rerun, cancel) appear right after badges
+   - Previously badges and buttons were pushed to far right due to expander hexpand
+   - Fixed by including badges and buttons in the expander's label widget
+   - Much better visual layout matching the macOS app
+
+2. **Vertical Alignment Refinement** ✅ - Improved badge/button alignment
+   - Changed badges and buttons from center to start alignment
+   - Added small top margin (1-2px) to align with title text baseline
+   - Badges and buttons now align properly with the run title text
+   - Prevents badges from appearing too low when subtitle is present
+
+3. **Action Buttons Right-Aligned** ✅ - Moved buttons to right edge of card
+   - Buttons (Open in GitHub, Re-run) now positioned at the right edge
+   - Badges stay with the run title on the left
+   - Buttons aligned to top (Start) to perfectly match title baseline
+   - Removed extra margin to align naturally with expander label
+   - Better visual separation between content and actions
+   - Matches macOS app layout
+
+4. **Auth Window Spinner Improvement** ✅ - Better spinner placement
+   - Moved spinner next to "Waiting for authorization..." text
+   - Previously spinner was awkwardly placed between buttons
+   - Created horizontal status_box containing label and spinner
+   - Cleaner, more professional appearance
+
+5. **Job Row Layout Improvement** ✅ - Better alignment for job metadata
+   - Grouped status, duration, and button into right_box container
+   - All metadata elements now aligned to right edge of job row
+   - Added `hexpand(false)` to right_box to prevent expansion
+   - Added `hexpand(true)` to jobs_box and job_box to take full width
+   - Added `margin_end(12)` to jobs_box for balanced spacing
+   - Added ellipsize to job name to prevent overflow
+   - Vertically centered within the row for consistent appearance
+   - Clean separation between job name (left) and metadata (right)
+   - **Verified with unit test** confirming proper alignment properties
+
+6. **Copy to Clipboard for Auth Code** ✅ - Improved authentication UX
+   - Added copy button next to the device auth code
+   - Button shows visual feedback (checkmark) for 2 seconds after copying
+   - Code remains selectable for manual copying if preferred
+   - Cleaner, more user-friendly authentication experience
+
+7. **Sign Out Confirmation & Better UX** ✅ - Improved sign out flow
+   - Added confirmation dialog before signing out
+   - Dialog explains user will need to sign in again
+   - After sign out, automatically shows auth window
+   - No need to restart application - seamless re-authentication
+   - Much better user experience than previous "restart required" message
+
+### Files Modified (Session 3):
+- `src/ui/detail_view/helpers.rs` - Fixed run row layout, button positioning, job row alignment and width
+- `src/ui/auth_window.rs` - Improved spinner placement and added copy-to-clipboard button
+- `src/ui/main_window.rs` - Added sign out confirmation and seamless re-authentication
+- `TODO.md` - Updated progress tracking
+
+### Technical Details:
+- Badges stay in label_box (left side with title)
+- Buttons moved to row_container with `set_halign(gtk::Align::End)` and `set_valign(gtk::Align::Start)`
+- Buttons have no extra margin - natural alignment with expander label
+- Both expander and buttons_box are children of row_container with Start alignment
+- Job row: job_box and jobs_box have `hexpand(true)` to fill available width
+- Job row: job_name has `hexpand(true)`, right_box has `hexpand(false)` and `halign(End)`
+- Job row metadata (status, duration, button) grouped in right_box with `halign(End)` and `valign(Center)`
+- Added unit test `test_job_row_layout_properties` to verify alignment
+- Spinner now in horizontal box with status label for better alignment
+- Changed `set_valign(gtk::Align::Center)` to `set_valign(gtk::Align::Start)` for badges
+- Added `margin_top(1-2px)` for fine-tuned baseline alignment on badges
+
+### User-Reported Issues Fixed:
+✅ Badge and button positioning (far right → immediately after run title)
+✅ Vertical alignment of badges and buttons (centered → aligned with title)
+✅ Action buttons moved to right edge (as requested in image 6.png)
+✅ Auth dialog spinner placement (between buttons → next to status text)
+✅ Buttons vertical alignment perfected (removed extra margin for natural alignment)
+✅ Job row metadata alignment (scattered → grouped and right-aligned per image 8.png)
+✅ Job rows not taking full width (added margin_end and verified hexpand)
+✅ Auth code needs copy button (added with visual feedback per image 3.png)
+✅ Sign out needs confirmation (added dialog with Yes/No)
+✅ Sign out requires restart (fixed - now seamlessly shows auth window)
+
+---
+
+## Previous Session Summary
+
 ### Session 2: UI Fixes and Error Handling Improvements
 
 **Completed Features:**
@@ -255,9 +345,11 @@
 - Friendly status uses existing helper methods from Job impl
 
 ### Code Quality:
-- All 22 tests passing (15 unit tests + 7 logic tests)
+- All 23 tests passing (16 unit tests + 7 logic tests)
+- Added new unit test for job row layout verification
 - Zero clippy warnings with `-D warnings`
 - Code properly formatted with `cargo fmt`
+- Test verifies: job name expands, right_box doesn't expand, proper alignment
 
 ### Progress Update:
 **Phase 1 - Workflow Runs & Jobs Display:** ✅ COMPLETE

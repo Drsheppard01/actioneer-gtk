@@ -294,7 +294,7 @@ fn create_run_expander_row(
     expander.set_hexpand(true);
     expander.set_valign(gtk::Align::Center);
 
-    // Create custom label widget with status icon
+    // Create custom label widget with status icon, text, badges, and buttons
     let label_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     label_box.set_valign(gtk::Align::Center);
 
@@ -319,25 +319,28 @@ fn create_run_expander_row(
     text_box.append(&subtitle_label);
 
     label_box.append(&text_box);
-    expander.set_label_widget(Some(&label_box));
-
-    row_container.append(&expander);
 
     // Job summary badges (placeholder that will be filled when jobs are loaded)
     let badges_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    badges_box.set_valign(gtk::Align::Center);
-    badges_box.set_halign(gtk::Align::End);
-    badges_box.set_margin_end(8);
+    badges_box.set_valign(gtk::Align::Start);
+    badges_box.set_margin_start(12);
+    badges_box.set_margin_top(2); // Align with title text baseline
 
     // Store badges_box reference for later update
     let badges_box_for_load = badges_box.clone();
 
-    row_container.append(&badges_box);
+    label_box.append(&badges_box);
 
-    // Action buttons box
+    // Set the custom label widget with icon, text, and badges
+    expander.set_label_widget(Some(&label_box));
+
+    row_container.append(&expander);
+
+    // Action buttons box - positioned at the right edge
     let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-    buttons_box.set_valign(gtk::Align::Center);
+    buttons_box.set_valign(gtk::Align::Start);
     buttons_box.set_halign(gtk::Align::End);
+    // No additional margin - buttons will align with the expander label naturally
 
     // Open in GitHub button
     if let Some(ref url) = run.html_url {
@@ -522,14 +525,17 @@ fn create_run_expander_row(
         buttons_box.append(&cancel_btn);
     }
 
+    // Add buttons to the row container (right edge)
     row_container.append(&buttons_box);
     run_box.append(&row_container);
 
     // Jobs box
     let jobs_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     jobs_box.set_margin_start(24);
+    jobs_box.set_margin_end(12); // Add end margin to match card padding
     jobs_box.set_margin_top(4);
     jobs_box.set_margin_bottom(4);
+    jobs_box.set_hexpand(true); // Make jobs box take full width
 
     let placeholder = gtk::Label::new(Some("Click to load jobs..."));
     placeholder.add_css_class("dim-label");
@@ -698,6 +704,7 @@ fn create_job_row_simple(job: &Job) -> gtk::Box {
     job_box.set_margin_top(4);
     job_box.set_margin_bottom(4);
     job_box.set_valign(gtk::Align::Center);
+    job_box.set_hexpand(true); // Make job row take full width
 
     let icon = gtk::Image::from_icon_name(get_job_status_icon(job));
     icon.add_css_class(get_job_status_class(job));
@@ -708,14 +715,21 @@ fn create_job_row_simple(job: &Job) -> gtk::Box {
     job_name_label.set_halign(gtk::Align::Start);
     job_name_label.set_hexpand(true);
     job_name_label.set_valign(gtk::Align::Center);
+    job_name_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     job_box.append(&job_name_label);
+
+    // Create a right-aligned container for status, time, and button
+    let right_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    right_box.set_valign(gtk::Align::Center);
+    right_box.set_halign(gtk::Align::End);
+    right_box.set_hexpand(false); // Don't expand - stay compact at the right edge
 
     let status_text = format_job_status(job);
     let status_label = gtk::Label::new(Some(&status_text));
     status_label.add_css_class("dim-label");
     status_label.add_css_class("caption");
     status_label.set_valign(gtk::Align::Center);
-    job_box.append(&status_label);
+    right_box.append(&status_label);
 
     // Show duration if available
     if let Some(duration) = job.duration_string() {
@@ -723,12 +737,8 @@ fn create_job_row_simple(job: &Job) -> gtk::Box {
         duration_label.add_css_class("dim-label");
         duration_label.add_css_class("caption");
         duration_label.set_valign(gtk::Align::Center);
-        duration_label.set_margin_start(4);
-        job_box.append(&duration_label);
+        right_box.append(&duration_label);
     }
-
-    // Note: View logs button would require parent window reference and client
-    // For now, we only show the "Open in GitHub" button which also allows viewing logs
 
     // Open in GitHub button (this also allows viewing logs)
     if let Some(ref url) = job.html_url {
@@ -745,8 +755,10 @@ fn create_job_row_simple(job: &Job) -> gtk::Box {
             }
         });
 
-        job_box.append(&open_btn);
+        right_box.append(&open_btn);
     }
+
+    job_box.append(&right_box);
 
     job_box
 }
@@ -909,7 +921,7 @@ fn update_job_summary_badges(badges_box: &gtk::Box, jobs: &[Job]) {
 fn create_job_badge(icon_name: &str, count: &str, css_class: &str) -> gtk::Box {
     let badge = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     badge.add_css_class("badge");
-    badge.set_valign(gtk::Align::Center);
+    badge.set_valign(gtk::Align::Start);
 
     let icon = gtk::Image::from_icon_name(icon_name);
     icon.set_pixel_size(12);
@@ -947,4 +959,88 @@ fn update_workflow_status_badge(badge: &gtk::Label, latest_run: &WorkflowRun) {
 
     badge.add_css_class(css_class);
     badge.set_visible(true);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_job_row_layout_properties() {
+        // Initialize GTK for testing (required for widget creation)
+        gtk::init().ok();
+
+        // Create a test job
+        let job = Job {
+            id: 1,
+            run_id: 1,
+            status: Some("completed".to_string()),
+            conclusion: Some("success".to_string()),
+            started_at: Some("2024-01-01T00:00:00Z".to_string()),
+            completed_at: Some("2024-01-01T00:05:00Z".to_string()),
+            name: Some("Test Job".to_string()),
+            html_url: Some("https://github.com/test".to_string()),
+        };
+
+        let job_row = create_job_row_simple(&job);
+
+        // Verify main job_box properties
+        assert_eq!(job_row.orientation(), gtk::Orientation::Horizontal);
+
+        // Get children to verify structure
+        let mut child = job_row.first_child();
+        let mut child_count = 0;
+        let mut has_job_name = false;
+        let mut has_right_box = false;
+
+        while let Some(widget) = child {
+            child_count += 1;
+
+            // Check if this is a label (job name)
+            if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
+                if label.text().contains("Test Job") {
+                    has_job_name = true;
+                    // Verify job name expands
+                    assert!(label.hexpands(), "Job name should expand to fill space");
+                    assert_eq!(
+                        label.halign(),
+                        gtk::Align::Start,
+                        "Job name should be left-aligned"
+                    );
+                }
+            }
+
+            // Check if this is a box (right_box with metadata)
+            if let Ok(box_widget) = widget.clone().downcast::<gtk::Box>() {
+                // Skip the icon at the beginning
+                if child_count > 2 {
+                    has_right_box = true;
+                    // Verify right_box alignment
+                    assert_eq!(
+                        box_widget.halign(),
+                        gtk::Align::End,
+                        "Right box should be right-aligned"
+                    );
+                    assert_eq!(
+                        box_widget.valign(),
+                        gtk::Align::Center,
+                        "Right box should be vertically centered"
+                    );
+                    assert!(!box_widget.hexpands(), "Right box should NOT expand");
+                }
+            }
+
+            child = widget.next_sibling();
+        }
+
+        assert!(has_job_name, "Job row should contain job name label");
+        assert!(
+            has_right_box,
+            "Job row should contain right-aligned metadata box"
+        );
+        assert!(
+            child_count >= 3,
+            "Job row should have at least icon, name, and right_box"
+        );
+    }
 }
