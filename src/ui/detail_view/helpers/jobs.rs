@@ -35,7 +35,10 @@ pub(super) fn create_job_row_simple(job: &Job) -> gtk::Box {
     job_box.set_hexpand(true);
 
     let icon = gtk::Image::from_icon_name(get_job_status_icon(job));
-    icon.add_css_class(get_job_status_class(job));
+    let status_class = get_job_status_class(job);
+    if !status_class.is_empty() {
+        icon.add_css_class(status_class);
+    }
     icon.set_valign(gtk::Align::Center);
     job_box.append(&icon);
 
