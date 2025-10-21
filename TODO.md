@@ -298,6 +298,8 @@ All major features from the macOS app have been successfully implemented and tes
 
 ## Recent Updates (Current Session - Continued)
 
+- **Background run refresh overhaul** ✅ — Timer now fetches workflows and runs for every workflow using the shared digest map. UI updates only when data changes, status badges stay in sync for collapsed expanders, and job contexts are preserved during background refreshes.
+
 ### Session 3: Layout Fix for Badges and Buttons + Major Feature Additions
 
 **Completed Features:**
@@ -387,8 +389,14 @@ All major features from the macOS app have been successfully implemented and tes
    - Added unit tests covering action button creation and empty run states
    - Maintained background refresh logic and cache clearing behavior
 
+13. **Auto-refresh Tracker Refinement** ✅ - Keep triggered runs polling
+   - Propagated active workflow HashSet through workflow list rebuilds
+   - Run loader now updates active tracker whenever runs refresh
+   - Auto-refresh now fetches runs for every workflow using ETag-aware loader
+   - Run digests prevent unnecessary UI rebuilds while still updating badges
+
 ### Known Issues to Fix:
-- [ ] Background auto-refresh with ETag (triggered workflows don't appear without manual refresh)
+- [✅] Background auto-refresh with ETag (runs now refresh for every workflow automatically)
 - [ ] Preserve workflow expansion state on repository refresh
 - [ ] Integrate welcome screen into main window (show on startup if not authenticated)
 

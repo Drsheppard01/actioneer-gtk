@@ -9,9 +9,17 @@ use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{error, info};
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct RunDigest {
+    pub(crate) id: i64,
+    pub(crate) status: Option<String>,
+    pub(crate) conclusion: Option<String>,
+    pub(crate) updated_at: Option<String>,
+}
 
 pub(crate) struct LoadRunsParams {
     pub client: Arc<Mutex<GitHubClient>>,
@@ -27,6 +35,9 @@ pub(crate) struct LoadRunsParams {
     pub bypass_cache: bool,
     pub job_contexts: JobContextMap,
     pub expanded_run_ids: Vec<i64>,
+    pub workflows_with_active: Arc<Mutex<HashSet<i64>>>,
+    pub background: bool,
+    pub run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
 }
 
 pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
@@ -44,13 +55,18 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
         bypass_cache,
         job_contexts,
         expanded_run_ids,
+        workflows_with_active,
+        background,
+        run_digests,
     } = params;
 
     let expanded_run_ids: HashSet<i64> = expanded_run_ids.into_iter().collect();
     let expanded_run_ids = std::rc::Rc::new(expanded_run_ids);
 
-    clear_runs_box(&runs_box);
-    append_spinner(&runs_box);
+    if !background {
+        clear_runs_box(&runs_box);
+        append_spinner(&runs_box);
+    }
 
     let (sender, receiver) = glib::MainContext::default()
         .channel::<Result<Vec<WorkflowRun>, GitHubError>>(glib::Priority::default());
@@ -63,64 +79,120 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
     let cache_for_spawn = cache.clone();
     let job_contexts_for_retry = job_contexts.clone();
     let toast_overlay_for_retry = toast_overlay.clone();
+    let run_digests_for_ui = run_digests.clone();
+    let background_for_ui = background;
 
     receiver.attach(None, move |result| {
-        clear_runs_box(&runs_box);
         let expanded_run_ids_for_ui = expanded_run_ids.clone();
+        let mut should_rebuild_ui = true;
+        if background_for_ui && !expander.is_expanded() {
+            should_rebuild_ui = false;
+        }
+
+        if !background_for_ui {
+            clear_runs_box(&runs_box);
+        }
 
         match result {
             Ok(runs) if runs.is_empty() => {
-                append_empty_runs_state(&runs_box);
+                {
+                    let mut digests = run_digests_for_ui.lock();
+                    digests.insert(workflow_id, Vec::new());
+                }
+
+                if should_rebuild_ui {
+                    if background_for_ui {
+                        clear_runs_box(&runs_box);
+                    }
+                    append_empty_runs_state(&runs_box);
+                }
             }
             Ok(runs) => {
-                prune_stale_job_contexts(&job_contexts, workflow_id, &runs);
-                store_runs_async(
-                    cache.clone(),
-                    owner.clone(),
-                    repo.clone(),
-                    workflow_id,
-                    &runs,
-                );
+                let digest = digest_runs(&runs);
+                let existing_digest = {
+                    let mut digests = run_digests_for_ui.lock();
+                    let previous = digests.get(&workflow_id).cloned();
+                    digests.insert(workflow_id, digest.clone());
+                    previous
+                };
+
+                let changed = existing_digest.map_or(true, |prev| prev != digest);
+
+                if changed {
+                    prune_stale_job_contexts(&job_contexts, workflow_id, &runs);
+                    store_runs_async(
+                        cache.clone(),
+                        owner.clone(),
+                        repo.clone(),
+                        workflow_id,
+                        &runs,
+                    );
+                }
                 if let Some(ref badge) = status_badge {
                     if let Some(latest_run) = runs.first() {
                         update_workflow_status_badge(badge, latest_run);
+                        badge.set_visible(true);
                     }
                 }
 
-                update_expander_activity(&expander, workflow_id, &runs);
-                append_runs_header(&runs_box, runs.len());
+                let has_active_runs = update_expander_activity(&expander, workflow_id, &runs);
 
-                for run in runs.iter().take(10) {
-                    let expand_jobs = expanded_run_ids_for_ui.contains(&run.id);
-                    let row = create_run_expander_row(
-                        run,
+                {
+                    let mut active = workflows_with_active.lock();
+                    if has_active_runs {
+                        active.insert(workflow_id);
+                    } else {
+                        active.remove(&workflow_id);
+                    }
+                }
+                if !background_for_ui || (should_rebuild_ui && changed) {
+                    if background_for_ui {
+                        clear_runs_box(&runs_box);
+                    }
+
+                    append_runs_header(&runs_box, runs.len());
+
+                    for run in runs.iter().take(10) {
+                        let expand_jobs = expanded_run_ids_for_ui.contains(&run.id);
+                        let row = create_run_expander_row(
+                            run,
+                            &client,
+                            &owner,
+                            &repo,
+                            &parent_window_clone,
+                            &cache,
+                            workflow_id,
+                            &toast_overlay,
+                            job_contexts.clone(),
+                            expand_jobs,
+                        );
+                        runs_box.append(&row);
+                    }
+                }
+            }
+            Err(error) => {
+                if background_for_ui {
+                    error!(
+                        "Background run refresh failed for workflow {}: {}",
+                        workflow_id, error
+                    );
+                } else {
+                    append_error_state(
+                        &runs_box,
+                        error,
+                        workflow_id,
                         &client,
                         &owner,
                         &repo,
                         &parent_window_clone,
+                        &expander_for_retry,
                         &cache,
-                        workflow_id,
-                        &toast_overlay,
-                        job_contexts.clone(),
-                        expand_jobs,
+                        &toast_overlay_for_retry,
+                        &job_contexts_for_retry,
+                        &workflows_with_active,
+                        &run_digests_for_ui,
                     );
-                    runs_box.append(&row);
                 }
-            }
-            Err(error) => {
-                append_error_state(
-                    &runs_box,
-                    error,
-                    workflow_id,
-                    &client,
-                    &owner,
-                    &repo,
-                    &parent_window_clone,
-                    &expander_for_retry,
-                    &cache,
-                    &toast_overlay_for_retry,
-                    &job_contexts_for_retry,
-                );
             }
         }
 
@@ -220,7 +292,11 @@ fn store_runs_async(
     });
 }
 
-fn update_expander_activity(expander: &gtk::Expander, workflow_id: i64, runs: &[WorkflowRun]) {
+fn update_expander_activity(
+    expander: &gtk::Expander,
+    workflow_id: i64,
+    runs: &[WorkflowRun],
+) -> bool {
     let has_active_runs = runs.iter().any(|run| {
         matches!(
             run.status.as_deref(),
@@ -238,6 +314,19 @@ fn update_expander_activity(expander: &gtk::Expander, workflow_id: i64, runs: &[
         expander.set_widget_name(base_name);
         info!("Workflow {} has no active runs", workflow_id);
     }
+
+    has_active_runs
+}
+
+fn digest_runs(runs: &[WorkflowRun]) -> Vec<RunDigest> {
+    runs.iter()
+        .map(|run| RunDigest {
+            id: run.id,
+            status: run.status.clone(),
+            conclusion: run.conclusion.clone(),
+            updated_at: run.updated_at.clone(),
+        })
+        .collect()
 }
 
 fn append_runs_header(runs_box: &gtk::Box, run_count: usize) {
@@ -261,6 +350,8 @@ fn append_error_state(
     cache: &Arc<DataCache>,
     toast_overlay: &adw::ToastOverlay,
     job_contexts: &JobContextMap,
+    workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
+    run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
 ) {
     error!("Failed to load runs: {}", error);
 
@@ -294,6 +385,8 @@ fn append_error_state(
     let cache_retry = cache.clone();
     let toast_overlay_retry = toast_overlay.clone();
     let job_contexts_retry = job_contexts.clone();
+    let workflows_with_active_retry = workflows_with_active.clone();
+    let run_digests_retry = run_digests.clone();
 
     retry_button.connect_clicked(move |_| {
         clear_runs_box(&runs_box_retry);
@@ -311,6 +404,9 @@ fn append_error_state(
             bypass_cache: true,
             job_contexts: job_contexts_retry.clone(),
             expanded_run_ids: Vec::new(),
+            workflows_with_active: workflows_with_active_retry.clone(),
+            background: false,
+            run_digests: run_digests_retry.clone(),
         });
     });
 

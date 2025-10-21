@@ -14,8 +14,9 @@ use tracing::{error, info, warn};
 
 mod helpers;
 use helpers::{
-    create_workflow_expander_row, refresh_jobs_for_workflows, take_job_context_run_ids,
-    JobRefreshContext,
+    create_workflow_expander_row, current_job_context_run_ids, load_workflow_runs,
+    refresh_jobs_for_workflows, take_job_context_run_ids, JobRefreshContext, LoadRunsParams,
+    RunDigest,
 };
 
 pub struct RepoDetailPane {
@@ -40,6 +41,7 @@ pub struct RepoDetailPane {
     auto_refresh_source: Arc<Mutex<Option<glib::SourceId>>>, // Auto-refresh timer
     workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>, // Track workflows needing refresh
     job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
+    run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
 }
 
 impl RepoDetailPane {
@@ -75,10 +77,10 @@ impl RepoDetailPane {
         list_box.set_margin_bottom(12);
         list_box.set_margin_start(12);
         list_box.set_margin_end(12);
-
         // Create ToastOverlay to wrap the content for showing feedback
         let toast_overlay = adw::ToastOverlay::new();
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let run_digests = Arc::new(Mutex::new(HashMap::new()));
 
         let pane = Self {
             parent: parent.clone(),
@@ -100,6 +102,7 @@ impl RepoDetailPane {
             auto_refresh_source: Arc::new(Mutex::new(None)),
             workflows_with_active_runs: Arc::new(Mutex::new(HashSet::new())),
             job_contexts: job_contexts.clone(),
+            run_digests: run_digests.clone(),
         };
 
         pane.build_ui();
@@ -184,7 +187,6 @@ impl RepoDetailPane {
 
     fn setup_favorite_button(&self) {
         let button = self.favorite_button.clone();
-        update_detail_favorite_button(&button, button.is_active());
 
         if let Some(manager) = &self.favorites_manager {
             let repo_id = self.repo.id;
@@ -304,6 +306,8 @@ impl RepoDetailPane {
         let cache = self.cache.clone();
         let toast_overlay = self.toast_overlay.clone();
         let job_contexts = self.job_contexts.clone();
+        let workflows_with_active_runs = self.workflows_with_active_runs.clone();
+        let run_digests = self.run_digests.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -348,10 +352,33 @@ impl RepoDetailPane {
                         &cache,
                         &toast_overlay,
                         &job_contexts,
+                        &workflows_with_active_runs,
+                        &run_digests,
                     );
                 }
                 Err(e) => {
                     error!("Failed to load workflows: {}", e);
+                    *workflows.lock() = Vec::new();
+                    update_workflows_list(
+                        &list_box,
+                        &[],
+                        &client,
+                        &owner,
+                        &repo_name,
+                        &parent_window,
+                        &cache,
+                        &toast_overlay,
+                        &job_contexts,
+                        &workflows_with_active_runs,
+                        &run_digests,
+                    );
+                    let message = format!("Failed to load workflows: {}", e);
+                    let toast_overlay = toast_overlay.clone();
+                    glib::MainContext::default().spawn_local(async move {
+                        let toast = adw::Toast::new(&message);
+                        toast.set_timeout(5);
+                        toast_overlay.add_toast(toast);
+                    });
                 }
             }
 
@@ -397,6 +424,8 @@ impl RepoDetailPane {
         let cache = self.cache.clone();
         let toast_overlay = self.toast_overlay.clone();
         let job_contexts = self.job_contexts.clone();
+        let workflows_with_active_runs = self.workflows_with_active_runs.clone();
+        let run_digests = self.run_digests.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -407,6 +436,7 @@ impl RepoDetailPane {
         let repo_name_for_spawn = repo_name.clone();
 
         receiver.attach(None, move |result| {
+            let run_digests = run_digests.clone();
             // Clear loading flag
             *loading_guard.lock() = false;
 
@@ -427,6 +457,8 @@ impl RepoDetailPane {
                             &cache,
                             &toast_overlay,
                             &job_contexts,
+                            &workflows_with_active_runs,
+                            &run_digests,
                         );
                     }
                 }
@@ -462,6 +494,8 @@ impl RepoDetailPane {
         let cache = self.cache.clone();
         let toast_overlay = self.toast_overlay.clone();
         let job_contexts = self.job_contexts.clone();
+        let workflows_with_active_runs = self.workflows_with_active_runs.clone();
+        let run_digests = self.run_digests.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -484,6 +518,8 @@ impl RepoDetailPane {
             let loading_guard = loading_guard.clone();
             let cache = cache.clone();
             let toast_overlay = toast_overlay.clone();
+            let workflows_with_active_runs = workflows_with_active_runs.clone();
+            let run_digests = run_digests.clone();
 
             // Show loading spinner
             callback_refs.show_loading(true);
@@ -499,6 +535,8 @@ impl RepoDetailPane {
             let parent_window_for_ui = parent_window.clone();
             let toast_overlay_for_ui = toast_overlay.clone();
             let job_contexts_for_ui = job_contexts.clone();
+            let workflows_with_active_runs_for_ui = workflows_with_active_runs.clone();
+            let run_digests_for_ui = run_digests.clone();
 
             receiver.attach(None, move |result| {
                 // Hide loading spinner
@@ -521,6 +559,8 @@ impl RepoDetailPane {
                             &cache,
                             &toast_overlay_for_ui,
                             &job_contexts_for_ui,
+                            &workflows_with_active_runs_for_ui,
+                            &run_digests_for_ui,
                         );
                     }
                     Err(e) => {
@@ -624,6 +664,9 @@ impl RepoDetailPane {
         let workflows_with_active = self.workflows_with_active_runs.clone();
         let auto_refresh_source = self.auto_refresh_source.clone();
         let job_contexts = self.job_contexts.clone();
+        let cache = self.cache.clone();
+        let toast_overlay = self.toast_overlay.clone();
+        let run_digests = self.run_digests.clone();
 
         info!(
             "Starting auto-refresh timer with interval: {} seconds",
@@ -632,28 +675,19 @@ impl RepoDetailPane {
 
         // Schedule periodic refresh
         let source_id = glib::timeout_add_seconds_local(refresh_interval_secs as u32, move || {
-            // Check if there are any workflows with active runs
-            let has_active = {
-                let active = workflows_with_active.lock();
-                !active.is_empty()
-            };
+            info!("Auto-refreshing workflow runs in background");
 
-            if !has_active {
-                // No active runs, continue timer but skip refresh
-                return glib::ControlFlow::Continue;
-            }
-
-            info!("Auto-refreshing workflows with active runs");
-
-            // Refresh expanded workflows that have active runs
-            Self::refresh_active_workflows(
+            Self::refresh_runs_background(
                 &list_box,
                 &client,
                 &owner,
                 &repo_name,
                 &parent_window,
+                &cache,
+                &toast_overlay,
                 &workflows_with_active,
                 &job_contexts,
+                &run_digests,
             );
 
             glib::ControlFlow::Continue
@@ -662,18 +696,20 @@ impl RepoDetailPane {
         *auto_refresh_source.lock() = Some(source_id);
     }
 
-    /// Refresh only workflows that have active runs
-    fn refresh_active_workflows(
+    /// Refresh runs for all workflows in the background.
+    fn refresh_runs_background(
         list_box: &gtk::ListBox,
-        _client: &Arc<Mutex<GitHubClient>>,
-        _owner: &str,
-        _repo: &str,
-        _parent_window: &adw::ApplicationWindow,
+        client: &Arc<Mutex<GitHubClient>>,
+        owner: &str,
+        repo: &str,
+        parent_window: &adw::ApplicationWindow,
+        cache: &Arc<DataCache>,
+        toast_overlay: &adw::ToastOverlay,
         workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
         job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
+        run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     ) {
-        // Scan for workflows with active runs and update tracking set
-        let mut found_active_ids = HashSet::new();
+        let mut observed_active: HashSet<i64> = HashSet::new();
 
         let mut child = list_box.first_child();
         while let Some(widget) = child.as_ref() {
@@ -687,32 +723,46 @@ impl RepoDetailPane {
                             let next = widget.next_sibling();
 
                             if let Some(expander) = widget.downcast_ref::<gtk::Expander>() {
-                                // Check if this workflow has active runs (widget name ends with _ACTIVE)
                                 let name = expander.widget_name();
                                 let name_str = name.as_str();
-                                let has_active = name_str.ends_with("_ACTIVE");
-
-                                // Extract workflow ID (before _ACTIVE suffix if present)
                                 let base_name = name_str.trim_end_matches("_ACTIVE");
+
                                 if let Some(id_str) = base_name.strip_prefix("workflow_") {
                                     if let Ok(workflow_id) = id_str.parse::<i64>() {
-                                        if has_active {
-                                            found_active_ids.insert(workflow_id);
+                                        if name_str.ends_with("_ACTIVE") {
+                                            observed_active.insert(workflow_id);
+                                        }
 
-                                            // Only refresh if expanded
-                                            if expander.is_expanded() {
-                                                info!(
-                                                    "Auto-refreshing active workflow {}",
-                                                    workflow_id
+                                        if let Some(child_widget) = expander.child() {
+                                            if let Ok(runs_box) =
+                                                child_widget.downcast::<gtk::Box>()
+                                            {
+                                                let status_badge =
+                                                    Self::status_badge_for_expander(expander);
+                                                let preserved_runs = current_job_context_run_ids(
+                                                    job_contexts,
+                                                    workflow_id,
                                                 );
 
-                                                unsafe {
-                                                    expander
-                                                        .set_data("actioneer-force-refresh", true);
-                                                }
-                                                // Trigger re-expansion to fetch fresh data
-                                                expander.set_expanded(false);
-                                                expander.set_expanded(true);
+                                                load_workflow_runs(LoadRunsParams {
+                                                    client: client.clone(),
+                                                    owner: owner.to_string(),
+                                                    repo: repo.to_string(),
+                                                    workflow_id,
+                                                    runs_box,
+                                                    parent_window: parent_window.clone(),
+                                                    status_badge,
+                                                    expander: expander.clone(),
+                                                    cache: cache.clone(),
+                                                    toast_overlay: toast_overlay.clone(),
+                                                    bypass_cache: false,
+                                                    job_contexts: job_contexts.clone(),
+                                                    expanded_run_ids: preserved_runs,
+                                                    workflows_with_active: workflows_with_active
+                                                        .clone(),
+                                                    background: true,
+                                                    run_digests: run_digests.clone(),
+                                                });
                                             }
                                         }
                                     }
@@ -726,10 +776,27 @@ impl RepoDetailPane {
             child = next_sibling;
         }
 
-        refresh_jobs_for_workflows(job_contexts, &found_active_ids);
+        refresh_jobs_for_workflows(job_contexts, &observed_active);
 
-        // Update the tracking set with current active workflows
-        *workflows_with_active.lock() = found_active_ids;
+        *workflows_with_active.lock() = observed_active;
+    }
+
+    fn status_badge_for_expander(expander: &gtk::Expander) -> Option<gtk::Label> {
+        expander
+            .label_widget()
+            .and_then(|widget| widget.downcast::<gtk::Box>().ok())
+            .and_then(|header| {
+                let mut child = header.first_child();
+                while let Some(widget) = child.as_ref() {
+                    if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
+                        if label.has_css_class("badge") {
+                            return Some(label);
+                        }
+                    }
+                    child = widget.next_sibling();
+                }
+                None
+            })
     }
 }
 
@@ -801,9 +868,9 @@ fn update_workflows_list(
     cache: &Arc<DataCache>,
     toast_overlay: &adw::ToastOverlay,
     job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
+    workflows_with_active_runs: &Arc<Mutex<HashSet<i64>>>,
+    run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
 ) {
-    use std::collections::HashSet;
-
     // First, collect which workflows are currently expanded
     let mut expanded_ids = HashSet::new();
     let mut child = list_box.first_child();
@@ -851,6 +918,14 @@ fn update_workflows_list(
         let mut contexts = job_contexts.lock();
         contexts.retain(|_, ctx| visible_workflows.contains(&ctx.workflow_id()));
     }
+    {
+        let mut active = workflows_with_active_runs.lock();
+        active.retain(|id| visible_workflows.contains(id));
+    }
+    {
+        let mut digests = run_digests.lock();
+        digests.retain(|workflow_id, _| visible_workflows.contains(workflow_id));
+    }
 
     // Clear the list
     while let Some(child) = list_box.first_child() {
@@ -888,6 +963,8 @@ fn update_workflows_list(
             cache,
             toast_overlay.clone(),
             job_contexts.clone(),
+            workflows_with_active_runs.clone(),
+            run_digests.clone(),
             preserved_run_ids,
         );
         list_box.append(&expander_row);

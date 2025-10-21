@@ -96,6 +96,23 @@ pub(crate) fn take_job_context_run_ids(job_contexts: &JobContextMap, workflow_id
     run_ids
 }
 
+pub(crate) fn current_job_context_run_ids(
+    job_contexts: &JobContextMap,
+    workflow_id: i64,
+) -> Vec<i64> {
+    let guard = job_contexts.lock();
+    guard
+        .iter()
+        .filter_map(|(&run_id, ctx)| {
+            if ctx.workflow_id() == workflow_id {
+                Some(run_id)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

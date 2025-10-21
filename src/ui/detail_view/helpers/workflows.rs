@@ -1,5 +1,5 @@
 use super::context::{take_job_context_run_ids, JobContextMap};
-use super::runs::{load_workflow_runs, LoadRunsParams};
+use super::runs::{load_workflow_runs, LoadRunsParams, RunDigest};
 use crate::api::models::Workflow;
 use crate::api::GitHubClient;
 use crate::cache::DataCache;
@@ -9,6 +9,7 @@ use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use parking_lot::Mutex;
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -23,6 +24,8 @@ pub(crate) fn create_workflow_expander_row(
     cache: &Arc<DataCache>,
     toast_overlay: adw::ToastOverlay,
     job_contexts: JobContextMap,
+    workflows_with_active: Arc<Mutex<HashSet<i64>>>,
+    run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     initial_expanded_run_ids: Vec<i64>,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
@@ -86,7 +89,10 @@ pub(crate) fn create_workflow_expander_row(
     let expander_for_trigger = expander.clone();
     let runs_box_for_trigger = runs_box.clone();
     let job_contexts_for_trigger = job_contexts.clone();
+    let run_digests_shared = run_digests.clone();
+    let run_digests_for_trigger = run_digests_shared.clone();
     let initial_expanded_run_ids = Rc::new(RefCell::new(Some(initial_expanded_run_ids)));
+    let workflows_with_active_shared = workflows_with_active.clone();
 
     let workflow_id = workflow.id;
     let owner_string = owner.to_string();
@@ -110,6 +116,8 @@ pub(crate) fn create_workflow_expander_row(
     let job_contexts_for_signal = job_contexts_shared.clone();
     let initial_expanded_runs_shared = initial_expanded_run_ids.clone();
     let initial_expanded_runs_for_signal = initial_expanded_runs_shared.clone();
+    let workflows_with_active_for_signal = workflows_with_active_shared.clone();
+    let run_digests_for_signal = run_digests_shared.clone();
 
     let is_programmatic_expand = Rc::new(Cell::new(false));
     let is_programmatic_for_signal = is_programmatic_expand.clone();
@@ -162,6 +170,9 @@ pub(crate) fn create_workflow_expander_row(
                 bypass_cache: force_refresh,
                 job_contexts: job_contexts_for_signal.clone(),
                 expanded_run_ids: preserved_runs,
+                workflows_with_active: workflows_with_active_for_signal.clone(),
+                background: false,
+                run_digests: run_digests_for_signal.clone(),
             });
         }
     });
@@ -197,6 +208,9 @@ pub(crate) fn create_workflow_expander_row(
                     bypass_cache: true,
                     job_contexts: job_contexts_shared.clone(),
                     expanded_run_ids: preserved_runs,
+                    workflows_with_active: workflows_with_active_shared.clone(),
+                    background: false,
+                    run_digests: run_digests_shared.clone(),
                 });
             }
         }
@@ -213,7 +227,9 @@ pub(crate) fn create_workflow_expander_row(
         let toast_overlay = toast_overlay_for_trigger.clone();
         let workflow_name = workflow_name_for_trigger.clone();
         let parent_window = parent_window_for_trigger.clone();
-        let job_contexts = job_contexts_for_trigger.clone();
+    let job_contexts = job_contexts_for_trigger.clone();
+    let workflows_with_active_button = workflows_with_active_shared.clone();
+    let run_digests = run_digests_for_trigger.clone();
 
         let dialog = gtk::Dialog::with_buttons(
             Some("Trigger Workflow"),
@@ -224,12 +240,11 @@ pub(crate) fn create_workflow_expander_row(
         dialog.set_default_response(gtk::ResponseType::Accept);
         dialog.set_modal(true);
 
-        let content_area = dialog.content_area();
+    let content_area = dialog.content_area();
         content_area.set_margin_start(12);
         content_area.set_margin_end(12);
         content_area.set_margin_top(12);
         content_area.set_margin_bottom(12);
-
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 12);
 
         let info_label = gtk::Label::new(Some(&format!(
@@ -283,6 +298,8 @@ pub(crate) fn create_workflow_expander_row(
         let expander_clone = expander.clone();
         let runs_box_clone = runs_box.clone();
         let parent_window_clone = parent_window.clone();
+        let workflows_with_active_clone = workflows_with_active_button.clone();
+        let run_digests_clone = run_digests.clone();
 
         dialog.connect_response(move |dialog, response| {
             if response == gtk::ResponseType::Accept {
@@ -323,8 +340,11 @@ pub(crate) fn create_workflow_expander_row(
                 let client = client_clone.clone();
                 let parent_window = parent_window_clone.clone();
                 let job_contexts = job_contexts.clone();
+                let workflows_with_active = workflows_with_active_clone.clone();
+                let run_digests_for_reload = run_digests_clone.clone();
 
                 receiver.attach(None, move |result| {
+                    let workflows_with_active = workflows_with_active.clone();
                     match result {
                         Ok(branch_name) => {
                             info!("Workflow triggered successfully on branch: {}", branch_name);
@@ -340,12 +360,15 @@ pub(crate) fn create_workflow_expander_row(
                             let toast_overlay_for_reload = toast_overlay.clone();
                             let cache_for_reload = cache.clone();
                             let job_contexts_for_reload = job_contexts.clone();
+                            let workflows_with_active_for_reload = workflows_with_active.clone();
+                            let run_digests_for_refresh = run_digests_for_reload.clone();
 
                             crate::runtime_handle().spawn(async move {
                                 cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
                             });
 
                             glib::idle_add_local_once(move || {
+                                let workflows_with_active = workflows_with_active_for_reload.clone();
                                 if expander.is_expanded() {
                                     info!("Reloading runs after workflow trigger");
                                     while let Some(child) = runs_box.first_child() {
@@ -373,6 +396,9 @@ pub(crate) fn create_workflow_expander_row(
                                         bypass_cache: true,
                                         job_contexts: job_contexts_for_reload.clone(),
                                         expanded_run_ids: preserved_runs,
+                                        workflows_with_active,
+                                        background: false,
+                                        run_digests: run_digests_for_refresh.clone(),
                                     });
                                 }
                             });
