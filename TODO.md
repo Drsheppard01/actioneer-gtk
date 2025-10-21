@@ -57,7 +57,7 @@ All major features from the macOS app have been successfully implemented and tes
 - [✅] Display running jobs count with blue bolt icon
 - [✅] Display queued jobs count with orange clock icon
 - [✅] Display completed jobs count with green checkmark icon
-- [ ] Auto-refresh job summaries for active runs
+- [🔄] Auto-refresh job summaries for active runs
 
 ### 1.4 Run Action Buttons
 - [✅] Add "Open in GitHub" button (arrow.up.right.square icon) with link to run URL
@@ -478,6 +478,10 @@ Cache Storage Points:
 **Testing:**
 - All 16 unit tests passing
 - All 7 logic tests passing  
+**In Progress:**
+
+- [🔄] Background job refresh plumbing in detail view (RepoDetailPane job contexts + silent job loader).
+
 - Zero build errors or warnings (except pre-existing WelcomeScreen)
 - Cache operations verified through log messages
 
@@ -899,7 +903,7 @@ All major features from the macOS app are now implemented in the GTK Linux clien
    - **Note:** Time updates on refresh; not critical
 
 4. **Job summary auto-refresh** (Section 1.3)
-   - [ ] Auto-refresh job summaries for active runs
+   - [🔄] Auto-refresh job summaries for active runs
    - **Status:** Works via full workflow refresh
    - **Note:** Current auto-refresh handles this adequately
 

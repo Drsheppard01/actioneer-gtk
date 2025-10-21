@@ -7,6 +7,7 @@ use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info};
 
@@ -20,6 +21,9 @@ struct LoadJobsParams {
     badges_box: Option<gtk::Box>,
     cache: Arc<DataCache>,
     workflow_id: i64,
+    background: bool,
+    bypass_cache: bool,
+    job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
 }
 
 /// Parameters for loading workflow runs
@@ -35,6 +39,25 @@ struct LoadRunsParams {
     cache: Arc<DataCache>,
     toast_overlay: adw::ToastOverlay,
     bypass_cache: bool,
+    job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct JobRefreshContext {
+    client: Arc<Mutex<GitHubClient>>,
+    owner: String,
+    repo: String,
+    workflow_id: i64,
+    run_id: i64,
+    cache: Arc<DataCache>,
+    jobs_box: gtk::Box,
+    badges_box: Option<gtk::Box>,
+}
+
+impl JobRefreshContext {
+    pub(crate) fn workflow_id(&self) -> i64 {
+        self.workflow_id
+    }
 }
 
 pub fn create_workflow_expander_row(
@@ -46,6 +69,7 @@ pub fn create_workflow_expander_row(
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
     toast_overlay: adw::ToastOverlay,
+    job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.set_activatable(false);
@@ -118,6 +142,7 @@ pub fn create_workflow_expander_row(
     let cache_for_trigger = cache.clone();
     let expander_for_trigger = expander.clone();
     let runs_box_for_trigger = runs_box.clone();
+    let job_contexts_for_trigger = job_contexts.clone();
 
     // Load runs when expander is activated
     let workflow_id = workflow.id;
@@ -138,6 +163,8 @@ pub fn create_workflow_expander_row(
     let status_badge_for_signal = status_badge_shared.clone();
     let cache_for_signal = cache_shared.clone();
     let toast_overlay_for_signal = toast_overlay_shared.clone();
+    let job_contexts_shared = job_contexts.clone();
+    let job_contexts_for_signal = job_contexts_shared.clone();
 
     // Track if we're programmatically expanding (to avoid triggering load)
     let is_programmatic_expand = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -180,6 +207,7 @@ pub fn create_workflow_expander_row(
                 cache: cache_for_signal.clone(),
                 toast_overlay: toast_overlay_for_signal.clone(),
                 bypass_cache: force_refresh,
+                job_contexts: job_contexts_for_signal.clone(),
             });
         }
     });
@@ -204,6 +232,7 @@ pub fn create_workflow_expander_row(
                     cache: cache_shared.clone(),
                     toast_overlay: toast_overlay_shared.clone(),
                     bypass_cache: true,
+                    job_contexts: job_contexts_shared.clone(),
                 });
             }
         }
@@ -222,6 +251,7 @@ pub fn create_workflow_expander_row(
         let toast_overlay = toast_overlay_for_trigger.clone();
         let workflow_name = workflow_name_for_trigger.clone();
         let parent_window = parent_window_for_trigger.clone();
+    let job_contexts = job_contexts_for_trigger.clone();
 
         // Show dialog to get branch/ref
         let dialog = gtk::Dialog::with_buttons(
@@ -336,6 +366,7 @@ pub fn create_workflow_expander_row(
                 let runs_box = runs_box_clone.clone();
                 let client = client_clone.clone();
                 let parent_window = parent_window_clone.clone();
+                let job_contexts = job_contexts.clone();
 
                 receiver.attach(None, move |result| {
                     match result {
@@ -353,6 +384,7 @@ pub fn create_workflow_expander_row(
                             let parent_window_for_reload = parent_window.clone();
                             let toast_overlay_for_reload = toast_overlay.clone();
                             let cache_for_reload = cache.clone();
+                            let job_contexts_for_reload = job_contexts.clone();
 
                             crate::runtime_handle().spawn(async move {
                                 // Clear cache
@@ -386,6 +418,7 @@ pub fn create_workflow_expander_row(
                                         cache: cache_for_reload.clone(),
                                         toast_overlay: toast_overlay_for_reload.clone(),
                                         bypass_cache: true,
+                                        job_contexts: job_contexts_for_reload.clone(),
                                     });
                                 }
                             });
@@ -443,6 +476,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
         cache,
         toast_overlay,
         bypass_cache,
+        job_contexts,
     } = params;
 
     // Show loading indicator
@@ -466,6 +500,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
     let parent_window_clone = parent_window.clone();
     let expander_for_retry = expander.clone();
     let cache_for_spawn = cache.clone();
+    let job_contexts_for_retry = job_contexts.clone();
 
     receiver.attach(None, move |result| {
         // Remove spinner
@@ -495,6 +530,19 @@ fn load_workflow_runs(params: LoadRunsParams) {
                 runs_box.append(&vbox);
             }
             Ok(runs) => {
+                // Drop any job contexts for runs that no longer exist
+                let active_run_ids: std::collections::HashSet<i64> =
+                    runs.iter().map(|run| run.id).collect();
+                {
+                    let mut contexts = job_contexts.lock();
+                    contexts.retain(|_, ctx| {
+                        if ctx.workflow_id != workflow_id {
+                            return true;
+                        }
+                        active_run_ids.contains(&ctx.run_id)
+                    });
+                }
+
                 // Store runs in cache
                 let cache_store = cache.clone();
                 let cache_key = format!("{}/{}", owner, repo);
@@ -552,6 +600,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
                         &cache,
                         workflow_id,
                         &toast_overlay,
+                        job_contexts.clone(),
                     );
                     runs_box.append(&run_row);
                 }
@@ -590,6 +639,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
                 let expander_retry = expander_for_retry.clone();
                 let cache_retry = cache.clone();
                 let toast_overlay_retry = toast_overlay.clone();
+                let job_contexts_retry = job_contexts_for_retry.clone();
 
                 retry_button.connect_clicked(move |_| {
                     // Clear and reload
@@ -608,6 +658,7 @@ fn load_workflow_runs(params: LoadRunsParams) {
                         cache: cache_retry.clone(),
                         toast_overlay: toast_overlay_retry.clone(),
                         bypass_cache: true,
+                        job_contexts: job_contexts_retry.clone(),
                     });
                 });
 
@@ -666,6 +717,7 @@ fn create_run_expander_row(
     cache: &Arc<DataCache>,
     workflow_id: i64,
     toast_overlay: &adw::ToastOverlay,
+    job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
 ) -> gtk::Box {
     let run_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     run_box.set_margin_top(4);
@@ -1056,9 +1108,13 @@ fn create_run_expander_row(
     let run_id = run.id;
     let jobs_box_clone = jobs_box.clone();
     let cache_clone = cache.clone();
+    let job_contexts_clone = job_contexts.clone();
 
     expander.connect_expanded_notify(move |exp| {
         if !exp.is_expanded() {
+            // Remove context when the run collapses
+            let mut contexts = job_contexts_clone.lock();
+            contexts.remove(&run_id);
             return;
         }
 
@@ -1074,6 +1130,9 @@ fn create_run_expander_row(
                     badges_box: Some(badges_box_for_load.clone()),
                     cache: cache_clone.clone(),
                     workflow_id,
+                    background: false,
+                    bypass_cache: false,
+                    job_contexts: job_contexts_clone.clone(),
                 });
             }
         }
@@ -1092,16 +1151,21 @@ fn load_run_jobs(params: LoadJobsParams) {
         badges_box,
         cache,
         workflow_id,
+        background,
+        bypass_cache,
+        job_contexts,
     } = params;
 
-    // Show loading
-    while let Some(child) = jobs_box.first_child() {
-        jobs_box.remove(&child);
-    }
+    // Show loading indicator unless this is a background refresh
+    if !background {
+        while let Some(child) = jobs_box.first_child() {
+            jobs_box.remove(&child);
+        }
 
-    let spinner = gtk::Spinner::new();
-    spinner.start();
-    jobs_box.append(&spinner);
+        let spinner = gtk::Spinner::new();
+        spinner.start();
+        jobs_box.append(&spinner);
+    }
 
     let (sender, receiver) = glib::MainContext::default()
         .channel::<Result<Vec<Job>, GitHubError>>(glib::Priority::default());
@@ -1116,17 +1180,28 @@ fn load_run_jobs(params: LoadJobsParams) {
     let owner_for_store = owner.clone();
     let repo_for_store = repo.clone();
 
+    // Clone for async fetch after receiver setup
+    let client_for_api = client.clone();
+    let owner_for_api = owner.clone();
+    let repo_for_api = repo.clone();
+    let cache_for_api = cache.clone();
+
     receiver.attach(None, move |result| {
-        while let Some(child) = jobs_box.first_child() {
-            jobs_box.remove(&child);
+        let should_clear = matches!(&result, Ok(_)) || !background;
+        if should_clear {
+            while let Some(child) = jobs_box.first_child() {
+                jobs_box.remove(&child);
+            }
         }
 
         match result {
             Ok(jobs) if jobs.is_empty() => {
-                let label = gtk::Label::new(Some("No jobs found"));
-                label.add_css_class("dim-label");
-                label.set_halign(gtk::Align::Start);
-                jobs_box.append(&label);
+                if !background {
+                    let label = gtk::Label::new(Some("No jobs found"));
+                    label.add_css_class("dim-label");
+                    label.set_halign(gtk::Align::Start);
+                    jobs_box.append(&label);
+                }
             }
             Ok(jobs) => {
                 // Store jobs in cache
@@ -1144,6 +1219,22 @@ fn load_run_jobs(params: LoadJobsParams) {
                     update_job_summary_badges(badges, &jobs);
                 }
 
+                // Remember context so we can refresh silently later
+                let context = JobRefreshContext {
+                    client: client.clone(),
+                    owner: owner.clone(),
+                    repo: repo.clone(),
+                    workflow_id,
+                    run_id,
+                    cache: cache.clone(),
+                    jobs_box: jobs_box.clone(),
+                    badges_box: badges_box.clone(),
+                };
+                {
+                    let mut contexts = job_contexts.lock();
+                    contexts.insert(run_id, context);
+                }
+
                 let total_jobs = jobs.len();
                 for job in jobs.iter() {
                     let job_row = create_job_row_simple(job);
@@ -1151,7 +1242,7 @@ fn load_run_jobs(params: LoadJobsParams) {
                 }
 
                 // Show job count info if there are jobs
-                if total_jobs > 0 {
+                if total_jobs > 0 && !background {
                     let count_label = gtk::Label::new(Some(&format!(
                         "Showing {} job{}",
                         total_jobs,
@@ -1168,54 +1259,60 @@ fn load_run_jobs(params: LoadJobsParams) {
             Err(e) => {
                 error!("Failed to load jobs: {}", e);
 
-                // Create error display with retry option
-                let error_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
-                error_box.set_halign(gtk::Align::Start);
-                error_box.set_margin_top(8);
-                error_box.set_margin_bottom(8);
+                if !background {
+                    // Create error display with retry option
+                    let error_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+                    error_box.set_halign(gtk::Align::Start);
+                    error_box.set_margin_top(8);
+                    error_box.set_margin_bottom(8);
 
-                let error_label = gtk::Label::new(Some("Unable to load jobs"));
-                error_label.add_css_class("dim-label");
-                error_label.set_halign(gtk::Align::Start);
-                error_box.append(&error_label);
+                    let error_label = gtk::Label::new(Some("Unable to load jobs"));
+                    error_label.add_css_class("dim-label");
+                    error_label.set_halign(gtk::Align::Start);
+                    error_box.append(&error_label);
 
-                let detail_label = gtk::Label::new(Some(&format!("Error: {}", e)));
-                detail_label.add_css_class("caption");
-                detail_label.add_css_class("dim-label");
-                detail_label.set_halign(gtk::Align::Start);
-                error_box.append(&detail_label);
+                    let detail_label = gtk::Label::new(Some(&format!("Error: {}", e)));
+                    detail_label.add_css_class("caption");
+                    detail_label.add_css_class("dim-label");
+                    detail_label.set_halign(gtk::Align::Start);
+                    error_box.append(&detail_label);
 
-                // Add retry button
-                let retry_button = gtk::Button::with_label("Retry");
-                retry_button.add_css_class("suggested-action");
-                retry_button.set_halign(gtk::Align::Start);
-                retry_button.set_margin_top(8);
+                    // Add retry button
+                    let retry_button = gtk::Button::with_label("Retry");
+                    retry_button.add_css_class("suggested-action");
+                    retry_button.set_halign(gtk::Align::Start);
+                    retry_button.set_margin_top(8);
 
-                let client_retry = client_for_retry.clone();
-                let owner_retry = owner_for_retry.clone();
-                let repo_retry = repo_for_retry.clone();
-                let jobs_box_retry = jobs_box.clone();
-                let cache_retry = cache_for_retry.clone();
+                    let client_retry = client_for_retry.clone();
+                    let owner_retry = owner_for_retry.clone();
+                    let repo_retry = repo_for_retry.clone();
+                    let jobs_box_retry = jobs_box.clone();
+                    let cache_retry = cache_for_retry.clone();
+                    let job_contexts_retry = job_contexts.clone();
 
-                retry_button.connect_clicked(move |_| {
-                    // Clear and reload
-                    while let Some(child) = jobs_box_retry.first_child() {
-                        jobs_box_retry.remove(&child);
-                    }
-                    load_run_jobs(LoadJobsParams {
-                        client: client_retry.clone(),
-                        owner: owner_retry.clone(),
-                        repo: repo_retry.clone(),
-                        run_id,
-                        jobs_box: jobs_box_retry.clone(),
-                        badges_box: None,
-                        cache: cache_retry.clone(),
-                        workflow_id,
+                    retry_button.connect_clicked(move |_| {
+                        // Clear and reload
+                        while let Some(child) = jobs_box_retry.first_child() {
+                            jobs_box_retry.remove(&child);
+                        }
+                        load_run_jobs(LoadJobsParams {
+                            client: client_retry.clone(),
+                            owner: owner_retry.clone(),
+                            repo: repo_retry.clone(),
+                            run_id,
+                            jobs_box: jobs_box_retry.clone(),
+                            badges_box: None,
+                            cache: cache_retry.clone(),
+                            workflow_id,
+                            background: false,
+                            bypass_cache: true,
+                            job_contexts: job_contexts_retry.clone(),
+                        });
                     });
-                });
 
-                error_box.append(&retry_button);
-                jobs_box.append(&error_box);
+                    error_box.append(&retry_button);
+                    jobs_box.append(&error_box);
+                }
             }
         }
 
@@ -1223,20 +1320,56 @@ fn load_run_jobs(params: LoadJobsParams) {
     });
 
     crate::runtime_handle().spawn(async move {
-        let cache_key = format!("{}/{}", owner, repo);
+        let cache_key = format!("{}/{}", owner_for_api, repo_for_api);
 
-        // Try cache first
-        if let Some(cached_jobs) = cache.jobs(&cache_key, workflow_id, run_id).await {
-            info!("Using cached jobs for run {}", run_id);
-            let _ = sender.send(Ok(cached_jobs));
-            return;
+        if !bypass_cache {
+            // Try cache first
+            if let Some(cached_jobs) = cache_for_api.jobs(&cache_key, workflow_id, run_id).await {
+                info!("Using cached jobs for run {}", run_id);
+                let _ = sender.send(Ok(cached_jobs));
+                return;
+            }
+        } else {
+            info!("Bypassing job cache for run {}", run_id);
         }
 
         // Cache miss - fetch from API
-        let client_guard = client.lock().clone();
-        let result = client_guard.list_jobs(&owner, &repo, run_id).await;
+        let client_guard = client_for_api.lock().clone();
+        let result = client_guard
+            .list_jobs(&owner_for_api, &repo_for_api, run_id)
+            .await;
         let _ = sender.send(result);
     });
+}
+
+pub(crate) fn refresh_jobs_for_workflows(
+    job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
+    workflow_ids: &std::collections::HashSet<i64>,
+) {
+    let contexts: Vec<JobRefreshContext> = {
+        let guard = job_contexts.lock();
+        guard
+            .values()
+            .filter(|ctx| workflow_ids.contains(&ctx.workflow_id))
+            .cloned()
+            .collect()
+    };
+
+    for context in contexts {
+        load_run_jobs(LoadJobsParams {
+            client: context.client.clone(),
+            owner: context.owner.clone(),
+            repo: context.repo.clone(),
+            run_id: context.run_id,
+            jobs_box: context.jobs_box.clone(),
+            badges_box: context.badges_box.clone(),
+            cache: context.cache.clone(),
+            workflow_id: context.workflow_id,
+            background: true,
+            bypass_cache: true,
+            job_contexts: job_contexts.clone(),
+        });
+    }
 }
 
 fn create_job_row_simple(job: &Job) -> gtk::Box {

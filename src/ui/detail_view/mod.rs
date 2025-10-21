@@ -8,12 +8,12 @@ use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
 mod helpers;
-use helpers::create_workflow_expander_row;
+use helpers::{create_workflow_expander_row, refresh_jobs_for_workflows, JobRefreshContext};
 
 pub struct RepoDetailPane {
     #[allow(dead_code)]
@@ -36,6 +36,7 @@ pub struct RepoDetailPane {
     loading: Arc<Mutex<bool>>, // Guard against re-entrant loads
     auto_refresh_source: Arc<Mutex<Option<glib::SourceId>>>, // Auto-refresh timer
     workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>, // Track workflows needing refresh
+    job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
 }
 
 impl RepoDetailPane {
@@ -51,6 +52,7 @@ impl RepoDetailPane {
         info!("Creating RepoDetailPane for: {}", repo.full_name);
         let workflows = Arc::new(Mutex::new(Vec::new()));
         let expanded_workflows = Arc::new(Mutex::new(HashSet::new()));
+        let job_contexts = Arc::new(Mutex::new(HashMap::new()));
 
         let favorite_button = gtk::ToggleButton::new();
         favorite_button.set_icon_name("emblem-favorite-symbolic");
@@ -94,6 +96,7 @@ impl RepoDetailPane {
             loading: Arc::new(Mutex::new(false)),
             auto_refresh_source: Arc::new(Mutex::new(None)),
             workflows_with_active_runs: Arc::new(Mutex::new(HashSet::new())),
+            job_contexts: job_contexts.clone(),
         };
 
         pane.build_ui();
@@ -297,6 +300,7 @@ impl RepoDetailPane {
         let loading_guard = self.loading.clone();
         let cache = self.cache.clone();
         let toast_overlay = self.toast_overlay.clone();
+        let job_contexts = self.job_contexts.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -340,6 +344,7 @@ impl RepoDetailPane {
                         &parent_window,
                         &cache,
                         &toast_overlay,
+                        &job_contexts,
                     );
                 }
                 Err(e) => {
@@ -388,6 +393,7 @@ impl RepoDetailPane {
         let loading_guard = self.loading.clone();
         let cache = self.cache.clone();
         let toast_overlay = self.toast_overlay.clone();
+        let job_contexts = self.job_contexts.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -417,6 +423,7 @@ impl RepoDetailPane {
                             &parent_window,
                             &cache,
                             &toast_overlay,
+                            &job_contexts,
                         );
                     }
                 }
@@ -451,6 +458,7 @@ impl RepoDetailPane {
         let loading_guard = self.loading.clone();
         let cache = self.cache.clone();
         let toast_overlay = self.toast_overlay.clone();
+        let job_contexts = self.job_contexts.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -487,6 +495,7 @@ impl RepoDetailPane {
             let callback_refs_for_ui = callback_refs.clone();
             let parent_window_for_ui = parent_window.clone();
             let toast_overlay_for_ui = toast_overlay.clone();
+            let job_contexts_for_ui = job_contexts.clone();
 
             receiver.attach(None, move |result| {
                 // Hide loading spinner
@@ -508,6 +517,7 @@ impl RepoDetailPane {
                             &parent_window_for_ui,
                             &cache,
                             &toast_overlay_for_ui,
+                            &job_contexts_for_ui,
                         );
                     }
                     Err(e) => {
@@ -610,6 +620,7 @@ impl RepoDetailPane {
         let list_box = self.list_box.clone();
         let workflows_with_active = self.workflows_with_active_runs.clone();
         let auto_refresh_source = self.auto_refresh_source.clone();
+        let job_contexts = self.job_contexts.clone();
 
         info!(
             "Starting auto-refresh timer with interval: {} seconds",
@@ -639,6 +650,7 @@ impl RepoDetailPane {
                 &repo_name,
                 &parent_window,
                 &workflows_with_active,
+                &job_contexts,
             );
 
             glib::ControlFlow::Continue
@@ -655,6 +667,7 @@ impl RepoDetailPane {
         _repo: &str,
         _parent_window: &adw::ApplicationWindow,
         workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
+        job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
     ) {
         // Scan for workflows with active runs and update tracking set
         let mut found_active_ids = HashSet::new();
@@ -709,6 +722,8 @@ impl RepoDetailPane {
             }
             child = next_sibling;
         }
+
+        refresh_jobs_for_workflows(job_contexts, &found_active_ids);
 
         // Update the tracking set with current active workflows
         *workflows_with_active.lock() = found_active_ids;
@@ -782,6 +797,7 @@ fn update_workflows_list(
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
     toast_overlay: &adw::ToastOverlay,
+    job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
 ) {
     use std::collections::HashSet;
 
@@ -826,6 +842,13 @@ fn update_workflows_list(
 
     info!("💾 Preserved {} expanded workflow(s)", expanded_ids.len());
 
+    // Remove any job refresh contexts for workflows that are no longer visible
+    let visible_workflows: HashSet<i64> = workflows.iter().map(|w| w.id).collect();
+    {
+        let mut contexts = job_contexts.lock();
+        contexts.retain(|_, ctx| visible_workflows.contains(&ctx.workflow_id()));
+    }
+
     // Clear the list
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
@@ -850,6 +873,13 @@ fn update_workflows_list(
 
     for workflow in workflows {
         let should_expand = expanded_ids.contains(&workflow.id);
+
+        // Drop stale job contexts before rebuilding UI for this workflow
+        {
+            let mut contexts = job_contexts.lock();
+            contexts.retain(|_, ctx| ctx.workflow_id() != workflow.id);
+        }
+
         let expander_row = create_workflow_expander_row(
             workflow,
             client,
@@ -859,6 +889,7 @@ fn update_workflows_list(
             parent_window,
             cache,
             toast_overlay.clone(),
+            job_contexts.clone(),
         );
         list_box.append(&expander_row);
     }
