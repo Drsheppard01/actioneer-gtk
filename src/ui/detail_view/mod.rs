@@ -13,7 +13,10 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 
 mod helpers;
-use helpers::{create_workflow_expander_row, refresh_jobs_for_workflows, JobRefreshContext};
+use helpers::{
+    create_workflow_expander_row, refresh_jobs_for_workflows, take_job_context_run_ids,
+    JobRefreshContext,
+};
 
 pub struct RepoDetailPane {
     #[allow(dead_code)]
@@ -873,12 +876,7 @@ fn update_workflows_list(
 
     for workflow in workflows {
         let should_expand = expanded_ids.contains(&workflow.id);
-
-        // Drop stale job contexts before rebuilding UI for this workflow
-        {
-            let mut contexts = job_contexts.lock();
-            contexts.retain(|_, ctx| ctx.workflow_id() != workflow.id);
-        }
+        let preserved_run_ids = take_job_context_run_ids(job_contexts, workflow.id);
 
         let expander_row = create_workflow_expander_row(
             workflow,
@@ -890,6 +888,7 @@ fn update_workflows_list(
             cache,
             toast_overlay.clone(),
             job_contexts.clone(),
+            preserved_run_ids,
         );
         list_box.append(&expander_row);
     }

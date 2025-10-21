@@ -1,0 +1,337 @@
+use super::super::context::JobContextMap;
+use super::super::formatting::update_workflow_status_badge;
+use super::row::create_run_expander_row;
+use crate::api::models::WorkflowRun;
+use crate::api::{GitHubClient, GitHubError};
+use crate::cache::DataCache;
+use crate::ui::utils::MainContextChannelExt;
+use gtk4::prelude::*;
+use gtk4::{self as gtk, glib};
+use libadwaita as adw;
+use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tracing::{error, info};
+
+pub(crate) struct LoadRunsParams {
+    pub client: Arc<Mutex<GitHubClient>>,
+    pub owner: String,
+    pub repo: String,
+    pub workflow_id: i64,
+    pub runs_box: gtk::Box,
+    pub parent_window: adw::ApplicationWindow,
+    pub status_badge: Option<gtk::Label>,
+    pub expander: gtk::Expander,
+    pub cache: Arc<DataCache>,
+    pub toast_overlay: adw::ToastOverlay,
+    pub bypass_cache: bool,
+    pub job_contexts: JobContextMap,
+    pub expanded_run_ids: Vec<i64>,
+}
+
+pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
+    let LoadRunsParams {
+        client,
+        owner,
+        repo,
+        workflow_id,
+        runs_box,
+        parent_window,
+        status_badge,
+        expander,
+        cache,
+        toast_overlay,
+        bypass_cache,
+        job_contexts,
+        expanded_run_ids,
+    } = params;
+
+    let expanded_run_ids: HashSet<i64> = expanded_run_ids.into_iter().collect();
+    let expanded_run_ids = std::rc::Rc::new(expanded_run_ids);
+
+    clear_runs_box(&runs_box);
+    append_spinner(&runs_box);
+
+    let (sender, receiver) = glib::MainContext::default()
+        .channel::<Result<Vec<WorkflowRun>, GitHubError>>(glib::Priority::default());
+
+    let client_for_spawn = client.clone();
+    let owner_for_spawn = owner.clone();
+    let repo_for_spawn = repo.clone();
+    let parent_window_clone = parent_window.clone();
+    let expander_for_retry = expander.clone();
+    let cache_for_spawn = cache.clone();
+    let job_contexts_for_retry = job_contexts.clone();
+    let toast_overlay_for_retry = toast_overlay.clone();
+
+    receiver.attach(None, move |result| {
+        clear_runs_box(&runs_box);
+        let expanded_run_ids_for_ui = expanded_run_ids.clone();
+
+        match result {
+            Ok(runs) if runs.is_empty() => {
+                append_empty_runs_state(&runs_box);
+            }
+            Ok(runs) => {
+                prune_stale_job_contexts(&job_contexts, workflow_id, &runs);
+                store_runs_async(
+                    cache.clone(),
+                    owner.clone(),
+                    repo.clone(),
+                    workflow_id,
+                    &runs,
+                );
+                if let Some(ref badge) = status_badge {
+                    if let Some(latest_run) = runs.first() {
+                        update_workflow_status_badge(badge, latest_run);
+                    }
+                }
+
+                update_expander_activity(&expander, workflow_id, &runs);
+                append_runs_header(&runs_box, runs.len());
+
+                for run in runs.iter().take(10) {
+                    let expand_jobs = expanded_run_ids_for_ui.contains(&run.id);
+                    let row = create_run_expander_row(
+                        run,
+                        &client,
+                        &owner,
+                        &repo,
+                        &parent_window_clone,
+                        &cache,
+                        workflow_id,
+                        &toast_overlay,
+                        job_contexts.clone(),
+                        expand_jobs,
+                    );
+                    runs_box.append(&row);
+                }
+            }
+            Err(error) => {
+                append_error_state(
+                    &runs_box,
+                    error,
+                    workflow_id,
+                    &client,
+                    &owner,
+                    &repo,
+                    &parent_window_clone,
+                    &expander_for_retry,
+                    &cache,
+                    &toast_overlay_for_retry,
+                    &job_contexts_for_retry,
+                );
+            }
+        }
+
+        glib::ControlFlow::Break
+    });
+
+    crate::runtime_handle().spawn(async move {
+        let cache_key = format!("{}/{}", owner_for_spawn, repo_for_spawn);
+
+        if !bypass_cache {
+            if let Some(cached_runs) = cache_for_spawn.runs(&cache_key, workflow_id).await {
+                if !cached_runs.is_empty() {
+                    info!("Using cached runs for workflow {}", workflow_id);
+                    let _ = sender.send(Ok(cached_runs));
+                    return;
+                }
+                info!(
+                    "Cache invalidated for workflow {}, fetching fresh data",
+                    workflow_id
+                );
+            }
+        } else {
+            info!("Bypassing run cache for workflow {}", workflow_id);
+        }
+
+        let client_guard = client_for_spawn.lock().clone();
+        let result = client_guard
+            .list_runs(&owner_for_spawn, &repo_for_spawn, workflow_id)
+            .await;
+
+        if let Ok(ref runs) = result {
+            cache_for_spawn
+                .store_runs(runs.clone(), &cache_key, workflow_id)
+                .await;
+        }
+
+        let _ = sender.send(result);
+    });
+}
+
+fn clear_runs_box(runs_box: &gtk::Box) {
+    while let Some(child) = runs_box.first_child() {
+        runs_box.remove(&child);
+    }
+}
+
+fn append_spinner(runs_box: &gtk::Box) {
+    let spinner = gtk::Spinner::new();
+    spinner.start();
+    spinner.set_margin_top(8);
+    spinner.set_margin_bottom(8);
+    runs_box.append(&spinner);
+}
+
+fn append_empty_runs_state(runs_box: &gtk::Box) {
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    vbox.set_halign(gtk::Align::Start);
+    vbox.set_margin_top(4);
+    vbox.set_margin_bottom(4);
+
+    let label = gtk::Label::new(Some("No recent runs"));
+    label.add_css_class("dim-label");
+    label.set_halign(gtk::Align::Start);
+    vbox.append(&label);
+
+    let info_label = gtk::Label::new(Some("Triggered runs may take 10-30 seconds to appear"));
+    info_label.add_css_class("dim-label");
+    info_label.add_css_class("caption");
+    info_label.set_halign(gtk::Align::Start);
+    vbox.append(&info_label);
+
+    runs_box.append(&vbox);
+}
+
+fn prune_stale_job_contexts(job_contexts: &JobContextMap, workflow_id: i64, runs: &[WorkflowRun]) {
+    let active_run_ids: HashSet<i64> = runs.iter().map(|run| run.id).collect();
+    let mut contexts = job_contexts.lock();
+    contexts.retain(|_, ctx| {
+        if ctx.workflow_id() != workflow_id {
+            return true;
+        }
+        active_run_ids.contains(&ctx.run_id())
+    });
+}
+
+fn store_runs_async(
+    cache: Arc<DataCache>,
+    owner: String,
+    repo: String,
+    workflow_id: i64,
+    runs: &[WorkflowRun],
+) {
+    let cache_key = format!("{}/{}", owner, repo);
+    let runs_cache = runs.to_vec();
+    crate::runtime_handle().spawn(async move {
+        cache.store_runs(runs_cache, &cache_key, workflow_id).await;
+    });
+}
+
+fn update_expander_activity(expander: &gtk::Expander, workflow_id: i64, runs: &[WorkflowRun]) {
+    let has_active_runs = runs.iter().any(|run| {
+        matches!(
+            run.status.as_deref(),
+            Some("in_progress") | Some("queued") | Some("waiting")
+        )
+    });
+
+    let widget_name = expander.widget_name();
+    let base_name = widget_name.as_str().trim_end_matches("_ACTIVE");
+
+    if has_active_runs {
+        expander.set_widget_name(&format!("{}_ACTIVE", base_name));
+        info!("Workflow {} has active runs", workflow_id);
+    } else {
+        expander.set_widget_name(base_name);
+        info!("Workflow {} has no active runs", workflow_id);
+    }
+}
+
+fn append_runs_header(runs_box: &gtk::Box, run_count: usize) {
+    let count_label = gtk::Label::new(Some(&format!("Recent runs ({})", run_count)));
+    count_label.add_css_class("dim-label");
+    count_label.add_css_class("caption");
+    count_label.set_halign(gtk::Align::Start);
+    count_label.set_margin_bottom(8);
+    runs_box.append(&count_label);
+}
+
+fn append_error_state(
+    runs_box: &gtk::Box,
+    error: GitHubError,
+    workflow_id: i64,
+    client: &Arc<Mutex<GitHubClient>>,
+    owner: &str,
+    repo: &str,
+    parent_window: &adw::ApplicationWindow,
+    expander: &gtk::Expander,
+    cache: &Arc<DataCache>,
+    toast_overlay: &adw::ToastOverlay,
+    job_contexts: &JobContextMap,
+) {
+    error!("Failed to load runs: {}", error);
+
+    let error_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    error_box.set_halign(gtk::Align::Start);
+    error_box.set_margin_top(8);
+    error_box.set_margin_bottom(8);
+
+    let error_label = gtk::Label::new(Some("Unable to load workflow runs"));
+    error_label.add_css_class("dim-label");
+    error_label.set_halign(gtk::Align::Start);
+    error_box.append(&error_label);
+
+    let detail_label = gtk::Label::new(Some(&format!("Error: {}", error)));
+    detail_label.add_css_class("caption");
+    detail_label.add_css_class("dim-label");
+    detail_label.set_halign(gtk::Align::Start);
+    error_box.append(&detail_label);
+
+    let retry_button = gtk::Button::with_label("Retry");
+    retry_button.add_css_class("suggested-action");
+    retry_button.set_halign(gtk::Align::Start);
+    retry_button.set_margin_top(8);
+
+    let runs_box_retry = runs_box.clone();
+    let client_retry = client.clone();
+    let owner_retry = owner.to_string();
+    let repo_retry = repo.to_string();
+    let parent_window_retry = parent_window.clone();
+    let expander_retry = expander.clone();
+    let cache_retry = cache.clone();
+    let toast_overlay_retry = toast_overlay.clone();
+    let job_contexts_retry = job_contexts.clone();
+
+    retry_button.connect_clicked(move |_| {
+        clear_runs_box(&runs_box_retry);
+        load_workflow_runs(LoadRunsParams {
+            client: client_retry.clone(),
+            owner: owner_retry.clone(),
+            repo: repo_retry.clone(),
+            workflow_id,
+            runs_box: runs_box_retry.clone(),
+            parent_window: parent_window_retry.clone(),
+            status_badge: None,
+            expander: expander_retry.clone(),
+            cache: cache_retry.clone(),
+            toast_overlay: toast_overlay_retry.clone(),
+            bypass_cache: true,
+            job_contexts: job_contexts_retry.clone(),
+            expanded_run_ids: Vec::new(),
+        });
+    });
+
+    error_box.append(&retry_button);
+    runs_box.append(&error_box);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_empty_runs_creates_notice() {
+        if gtk::init().is_err() {
+            eprintln!("Skipping append_empty_runs_creates_notice due to missing display");
+            return;
+        }
+
+        let runs_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        append_empty_runs_state(&runs_box);
+
+        assert!(runs_box.first_child().is_some());
+    }
+}

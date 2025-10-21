@@ -57,7 +57,7 @@ All major features from the macOS app have been successfully implemented and tes
 - [✅] Display running jobs count with blue bolt icon
 - [✅] Display queued jobs count with orange clock icon
 - [✅] Display completed jobs count with green checkmark icon
-- [🔄] Auto-refresh job summaries for active runs
+- [✅] Auto-refresh job summaries for active runs
 
 ### 1.4 Run Action Buttons
 - [✅] Add "Open in GitHub" button (arrow.up.right.square icon) with link to run URL
@@ -376,6 +376,16 @@ All major features from the macOS app have been successfully implemented and tes
 10. **Workflow Refresh Restores Runs** ✅ - Programmatic expansion now reloads runs
    - Fixes disappearing job list after pressing refresh by loading runs immediately
    - Forced refresh bypasses cached runs so new workflow activity shows up instantly
+
+11. **Expanded Runs Stay Fresh** ✅ - Preserved job refresh state
+   - Captures expanded run IDs before workflows refresh
+   - Automatically reloads job lists and job contexts for preserved runs
+   - Keeps job progress visible without manual re-expansion
+
+12. **Runs Helpers Refactor** ✅ - Split oversized helper module
+   - Extracted run loading, row layout, and action wiring into dedicated files
+   - Added unit tests covering action button creation and empty run states
+   - Maintained background refresh logic and cache clearing behavior
 
 ### Known Issues to Fix:
 - [ ] Background auto-refresh with ETag (triggered workflows don't appear without manual refresh)
