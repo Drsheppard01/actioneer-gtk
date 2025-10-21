@@ -1,6 +1,7 @@
 use super::detail_placeholder::schedule_status_page_update;
 use super::detail_view::RepoDetailPane;
 use super::sidebar::{find_label_by_name, rebuild_repo_list, row_matches_query};
+use super::WelcomeScreen;
 use crate::api::models::{RateLimitInfo, Repo};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
@@ -47,6 +48,7 @@ pub struct MainWindow {
     rate_limit_info: Arc<Mutex<Option<RateLimitInfo>>>,
     detail_status_page: adw::StatusPage,
     detail_stack: gtk::Stack,
+    root_stack: gtk::Stack,
     active_detail: Rc<RefCell<Option<RepoDetailPane>>>,
     background_refresh_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     handling_selection: Arc<Mutex<bool>>,
@@ -99,6 +101,12 @@ impl MainWindow {
         detail_stack.set_visible_child_name("placeholder");
         detail_stack.set_vexpand(true);
         detail_stack.set_hexpand(true);
+        let root_stack = gtk::Stack::builder()
+            .transition_type(gtk::StackTransitionType::Crossfade)
+            .transition_duration(200)
+            .build();
+        root_stack.set_hexpand(true);
+        root_stack.set_vexpand(true);
         let active_detail: Rc<RefCell<Option<RepoDetailPane>>> = Rc::new(RefCell::new(None));
         let favorites_manager = match FavoritesManager::new() {
             Ok(manager) => Some(Arc::new(manager)),
@@ -146,6 +154,7 @@ impl MainWindow {
             rate_limit_info: rate_limit_info.clone(),
             detail_status_page: detail_status_page.clone(),
             detail_stack: detail_stack.clone(),
+            root_stack: root_stack.clone(),
             active_detail: active_detail.clone(),
             background_refresh_task: background_refresh_task.clone(),
             handling_selection: handling_selection.clone(),
@@ -154,6 +163,7 @@ impl MainWindow {
         main_window.build_ui();
         main_window.prime_favorites();
         main_window.observe_favorites();
+        main_window.setup_focus_handler();
         main_window.check_authentication();
         main_window
     }
@@ -182,6 +192,7 @@ impl MainWindow {
 
     fn build_ui(&self) {
         let header = self.header_bar.clone();
+        let root_stack = self.root_stack.clone();
 
         let refresh_button = self.refresh_button.clone();
         header.pack_start(&refresh_button);
@@ -252,7 +263,32 @@ impl MainWindow {
 
         main_box.append(&split_pane);
 
-        self.window.set_content(Some(&main_box));
+        root_stack.add_named(&main_box, Some("app"));
+
+        let welcome_screen = WelcomeScreen::new();
+        let welcome_widget = welcome_screen.widget();
+        welcome_widget.set_margin_top(48);
+        welcome_widget.set_margin_bottom(48);
+        welcome_widget.set_margin_start(48);
+        welcome_widget.set_margin_end(48);
+        root_stack.add_named(welcome_widget, Some("welcome"));
+        root_stack.set_visible_child_name("welcome");
+
+        self.window.set_content(Some(&root_stack));
+
+        let this = self.clone();
+        welcome_screen.connect_signin(move || {
+            this.show_auth_window();
+        });
+
+        let window_for_quit = self.window.clone();
+        welcome_screen.connect_quit(move || {
+            if let Some(app) = window_for_quit.application() {
+                app.quit();
+            } else {
+                window_for_quit.close();
+            }
+        });
 
         self.connect_refresh_button(&refresh_button);
         self.connect_signout_button(&signout_button);
@@ -262,88 +298,156 @@ impl MainWindow {
     }
 
     fn check_authentication(&self) {
-        let storage = TokenStorage::new();
-
-        match storage {
-            Ok(storage) => {
-                if let Ok(token) = storage.get_token() {
+        match TokenStorage::new() {
+            Ok(storage) => match storage.get_token() {
+                Ok(token) => {
                     info!("Found existing token, initializing client");
-                    let client_result = GitHubClient::new(Some(token));
-
-                    match client_result {
-                        Ok(client) => {
-                            let client_arc = self.client.clone();
-                            *client_arc.lock() = Some(client);
-                            self.load_repositories();
-                        }
-                        Err(e) => {
-                            error!("Failed to create GitHub client: {}", e);
-                            self.show_auth_window();
-                        }
+                    if !self.initialize_client(token) {
+                        self.enter_signed_out_state();
                     }
-                } else {
-                    info!("No token found, showing auth window");
-                    self.show_auth_window();
                 }
-            }
+                Err(_) => {
+                    info!("No token found, presenting welcome screen");
+                    self.enter_signed_out_state();
+                }
+            },
             Err(e) => {
                 error!("Failed to access token storage: {}", e);
-                self.show_auth_window();
+                self.enter_signed_out_state();
             }
         }
     }
 
     fn show_auth_window(&self) {
-        let auth_window = AuthWindow::new(Some(&self.window));
-        let client_arc = self.client.clone();
+        let auth_window = AuthWindow::new();
+        auth_window.present(Some(&self.window));
+    }
+
+    fn initialize_client(&self, token: String) -> bool {
+        match GitHubClient::new(Some(token)) {
+            Ok(client) => {
+                {
+                    let mut client_guard = self.client.lock();
+                    *client_guard = Some(client);
+                }
+
+                {
+                    let mut info_guard = self.rate_limit_info.lock();
+                    *info_guard = None;
+                }
+
+                self.update_rate_limit_display(None);
+                self.show_authenticated_ui();
+                self.load_repositories();
+                true
+            }
+            Err(e) => {
+                error!("Failed to create GitHub client: {}", e);
+                false
+            }
+        }
+    }
+
+    fn show_authenticated_ui(&self) {
+        let stack = self.root_stack.clone();
+        glib::idle_add_local_once(move || {
+            stack.set_visible_child_name("app");
+        });
+    }
+
+    fn enter_signed_out_state(&self) {
+        info!("Switching to signed-out state");
+        self.stop_background_refresh();
+
+        {
+            let mut handling = self.handling_selection.lock();
+            *handling = false;
+        }
+
+        {
+            let mut selected = self.selected_repo_id.lock();
+            *selected = None;
+        }
+
+        {
+            let mut client_guard = self.client.lock();
+            *client_guard = None;
+        }
+
+        {
+            let mut repos_guard = self.repos.lock();
+            repos_guard.clear();
+        }
+
+        self.actions_states.lock().clear();
+        self.actions_checked_at.lock().clear();
+        self.workflow_counts.lock().clear();
+
+        {
+            let mut info_guard = self.rate_limit_info.lock();
+            *info_guard = None;
+        }
+
+        self.schedule_repo_list_refresh();
+        self.show_detail_placeholder();
+        self.update_rate_limit_display(None);
+        self.show_header_loading(false);
+
+        let list_box = self.repo_list.clone();
+        glib::idle_add_local_once(move || {
+            list_box.unselect_all();
+        });
+
+        let search_entry = self.search_entry.clone();
+        glib::idle_add_local_once(move || {
+            search_entry.set_text("");
+        });
+
+        let stack = self.root_stack.clone();
+        glib::idle_add_local_once(move || {
+            stack.set_visible_child_name("welcome");
+        });
+    }
+
+    fn setup_focus_handler(&self) {
         let this = self.clone();
-
-        auth_window.present();
-
-        // Reload when main window gets focus back after auth
         self.window.connect_is_active_notify(move |window| {
-            if window.is_active() {
-                let storage = TokenStorage::new().ok();
-                if let Some(storage) = storage {
-                    if let Ok(token) = storage.get_token() {
-                        info!("Token found after auth, reinitializing client and loading repos");
-                        if let Ok(client) = GitHubClient::new(Some(token)) {
-                            let client_clone = client_arc.clone();
-                            let this = this.clone();
+            if !window.is_active() {
+                return;
+            }
 
-                            {
-                                let mut client_guard = client_clone.lock();
-                                *client_guard = Some(client.clone());
-                            }
+            let storage = match TokenStorage::new() {
+                Ok(storage) => storage,
+                Err(err) => {
+                    error!("Failed to access token storage during focus check: {}", err);
+                    this.enter_signed_out_state();
+                    return;
+                }
+            };
 
-                            let (sender, receiver) = glib::MainContext::default().channel::<(
-                                Result<Vec<Repo>, GitHubError>,
-                                Option<RateLimitInfo>,
-                            )>(
-                                glib::Priority::default(),
-                            );
-                            let this_ui = this.clone();
-
-                            receiver.attach(None, move |(repos_result, rate_info)| {
-                                match repos_result {
-                                    Ok(repos) => {
-                                        info!("Loaded {} repositories after auth", repos.len());
-                                        this_ui.refresh_repository_view(repos, rate_info);
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to load repositories: {}", e);
-                                    }
-                                }
-                                glib::ControlFlow::Break
-                            });
-
-                            crate::runtime_handle().spawn(async move {
-                                let repos_result = client.list_repos().await;
-                                let rate_info = client.rate_limit_info();
-                                let _ = sender.send((repos_result, rate_info));
-                            });
+            match storage.get_token() {
+                Ok(token) => {
+                    let needs_client = this.client.lock().is_none();
+                    if needs_client {
+                        info!("Token available after auth, initializing client");
+                        if !this.initialize_client(token) {
+                            this.enter_signed_out_state();
                         }
                     }
+                }
+                Err(_) => {
+                    let had_client = {
+                        let mut guard = this.client.lock();
+                        let had = guard.is_some();
+                        *guard = None;
+                        had
+                    };
+
+                    if had_client {
+                        info!("Token missing after focus, returning to welcome screen");
+                    }
+
+                    this.enter_signed_out_state();
                 }
             }
         });
@@ -552,43 +656,35 @@ impl MainWindow {
     }
 
     fn connect_signout_button(&self, button: &gtk::Button) {
-        let window = self.window.clone();
-        let client = self.client.clone();
+        let parent = self.window.clone();
+        let this = self.clone();
 
         button.connect_clicked(move |_| {
-            // Show confirmation dialog first
             let dialog = gtk::MessageDialog::new(
-                Some(&window),
+                Some(&parent),
                 gtk::DialogFlags::MODAL,
                 gtk::MessageType::Warning,
                 gtk::ButtonsType::YesNo,
                 "Are you sure you want to sign out?\n\nYou will need to sign in again to continue.",
             );
 
-            let window_clone = window.clone();
-            let client_clone = client.clone();
+            let this_inner = this.clone();
 
             dialog.connect_response(move |dialog, response| {
                 dialog.close();
 
                 if response == gtk::ResponseType::Yes {
-                    let storage = TokenStorage::new();
-
-                    if let Ok(storage) = storage {
-                        if let Err(e) = storage.delete_token() {
-                            error!("Failed to delete token: {}", e);
-                        } else {
-                            info!("Signed out successfully");
-
-                            // Clear client
-                            *client_clone.lock() = None;
-
-                            // Close the main window
-                            window_clone.close();
-
-                            // Show auth window to sign in again
-                            let auth_window = AuthWindow::new(None::<&gtk::Window>);
-                            auth_window.present();
+                    match TokenStorage::new() {
+                        Ok(storage) => {
+                            if let Err(err) = storage.delete_token() {
+                                error!("Failed to delete token: {}", err);
+                            } else {
+                                info!("Signed out successfully");
+                                this_inner.enter_signed_out_state();
+                            }
+                        }
+                        Err(err) => {
+                            error!("Failed to access token storage: {}", err);
                         }
                     }
                 }

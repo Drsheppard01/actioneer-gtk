@@ -1,9 +1,10 @@
+use gtk4 as gtk;
 use gtk4::prelude::*;
-use gtk4::{self as gtk, glib};
-use libadwaita as adw;
 
 pub struct WelcomeScreen {
     widget: gtk::Box,
+    signin_button: gtk::Button,
+    quit_button: gtk::Button,
 }
 
 impl WelcomeScreen {
@@ -67,11 +68,25 @@ impl WelcomeScreen {
         buttons_box.set_halign(gtk::Align::Center);
         buttons_box.set_width_request(300);
 
-        let signin_button = gtk::Button::with_label("Sign in with GitHub");
+        let signin_button = gtk::Button::new();
         signin_button.add_css_class("suggested-action");
         signin_button.add_css_class("pill");
-        signin_button.set_icon_name("avatar-default-symbolic");
         signin_button.set_widget_name("welcome-signin-button");
+
+        let signin_content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        signin_content.set_halign(gtk::Align::Center);
+        signin_content.set_valign(gtk::Align::Center);
+
+        let signin_icon = gtk::Image::from_icon_name("avatar-default-symbolic");
+        signin_icon.set_pixel_size(20);
+        signin_content.append(&signin_icon);
+
+        let signin_label = gtk::Label::new(Some("Sign in with GitHub"));
+        signin_label.set_halign(gtk::Align::Center);
+        signin_label.add_css_class("heading");
+        signin_content.append(&signin_label);
+
+        signin_button.set_child(Some(&signin_content));
         buttons_box.append(&signin_button);
 
         let demo_button = gtk::Button::with_label("Try Demo Mode");
@@ -81,9 +96,33 @@ impl WelcomeScreen {
         demo_button.set_tooltip_text(Some("Demo mode coming soon"));
         buttons_box.append(&demo_button);
 
+        let quit_button = gtk::Button::new();
+        quit_button.add_css_class("pill");
+        quit_button.add_css_class("flat");
+        quit_button.set_widget_name("welcome-quit-button");
+
+        let quit_content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        quit_content.set_halign(gtk::Align::Center);
+        quit_content.set_valign(gtk::Align::Center);
+
+        let quit_icon = gtk::Image::from_icon_name("application-exit-symbolic");
+        quit_icon.set_pixel_size(18);
+        quit_content.append(&quit_icon);
+
+        let quit_label = gtk::Label::new(Some("Quit"));
+        quit_label.set_halign(gtk::Align::Center);
+        quit_content.append(&quit_label);
+
+        quit_button.set_child(Some(&quit_content));
+        buttons_box.append(&quit_button);
+
         widget.append(&buttons_box);
 
-        Self { widget }
+        Self {
+            widget,
+            signin_button,
+            quit_button,
+        }
     }
 
     fn add_feature(container: &gtk::Box, icon_name: &str, text: &str, css_class: &str) {
@@ -107,29 +146,10 @@ impl WelcomeScreen {
     }
 
     pub fn connect_signin<F: Fn() + 'static>(&self, callback: F) {
-        if let Some(button) = self
-            .widget
-            .first_child()
-            .and_then(|w| Self::find_widget_by_name(&w, "welcome-signin-button"))
-        {
-            if let Ok(btn) = button.downcast::<gtk::Button>() {
-                btn.connect_clicked(move |_| callback());
-            }
-        }
+        self.signin_button.connect_clicked(move |_| callback());
     }
 
-    fn find_widget_by_name(widget: &gtk::Widget, name: &str) -> Option<gtk::Widget> {
-        if widget.widget_name() == name {
-            return Some(widget.clone());
-        }
-
-        let mut child = widget.first_child();
-        while let Some(w) = child {
-            if let Some(found) = Self::find_widget_by_name(&w, name) {
-                return Some(found);
-            }
-            child = w.next_sibling();
-        }
-        None
+    pub fn connect_quit<F: Fn() + 'static>(&self, callback: F) {
+        self.quit_button.connect_clicked(move |_| callback());
     }
 }

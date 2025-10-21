@@ -367,13 +367,11 @@ All major features from the macOS app have been successfully implemented and tes
    - High-value feature for CI/CD management
    - **Much better UX than typing branch names!**
 
-9. **Welcome Screen** 🔄 - Sign-in state UI (IN PROGRESS)
-   - Created welcome_screen.rs with beautiful sign-in UI
-   - Matches macOS app design with icon, title, features list
-   - "Sign in with GitHub" button (blue, prominent)
-   - "Try Demo Mode" button (disabled as requested)
-   - Ready to integrate into main window with stack switcher
-   - TODO: Wire up authentication flow, switch between welcome/main views
+9. **Welcome Screen** ✅ - Sign-in state UI integration
+   - Welcome stack now wraps main window so the signed-out view appears automatically
+   - Sign-in button launches the auth flow and focus handler boots the client after success
+   - Sign-out keeps the window open, clears cached repo state, and returns to welcome instantly
+   - Switching accounts no longer requires restarting; signing out/in reuses the same window
 
 10. **Workflow Refresh Restores Runs** ✅ - Programmatic expansion now reloads runs
    - Fixes disappearing job list after pressing refresh by loading runs immediately
@@ -395,10 +393,18 @@ All major features from the macOS app have been successfully implemented and tes
    - Auto-refresh now fetches runs for every workflow using ETag-aware loader
    - Run digests prevent unnecessary UI rebuilds while still updating badges
 
+14. **Adaptive Auth Dialog** ✅ - Swapped to `AdwDialog`
+   - Device flow UI now uses libadwaita's adaptive dialog container
+   - Dialog presents over the welcome screen without spawning a new window
+   - Existing spinner, copy button, and polling logic carried over unchanged
+
+15. **Welcome Screen Actions** ✅ - Hooked sign-in and quit controls
+   - Sign in opens the new adaptive dialog and reuses the existing flow
+   - Quit button now appears alongside sign-in and cleanly exits the app
+
 ### Known Issues to Fix:
 - [✅] Background auto-refresh with ETag (runs now refresh for every workflow automatically)
 - [ ] Preserve workflow expansion state on repository refresh
-- [ ] Integrate welcome screen into main window (show on startup if not authenticated)
 
 ### Files Modified (Session 3):
 - `src/ui/detail_view/helpers.rs` - Fixed run row layout, button positioning, job row alignment and width, added workflow trigger with branch selector
@@ -941,9 +947,9 @@ All major features from the macOS app are now implemented in the GTK Linux clien
    - **Status:** Manual refresh works; nice-to-have improvements
 
 8. **Welcome screen integration** (Section 9.3)
-   - [ ] Integrate welcome screen into main window
-   - **Status:** Welcome screen exists but not in main flow
-   - **Note:** Auth flow works; welcome screen is cosmetic
+   - [✅] Integrate welcome screen into main window
+   - **Status:** Welcome view toggles automatically with authentication state
+   - **Note:** Sign-in/out no longer requires closing the application
 
 ### macOS Features Already in GTK
 
@@ -992,7 +998,6 @@ All major features from the macOS app are now implemented in the GTK Linux clien
 - Time auto-update (complex, low value)
 - Job branch display (API limitation)
 - Expansion state preservation (nice-to-have)
-- Welcome screen integration (cosmetic)
 
 **Next action:** Implement workflow completion notifications (biggest gap vs macOS)
 

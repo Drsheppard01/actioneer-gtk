@@ -9,7 +9,7 @@ license = "MIT"
 [dependencies]
 # GTK4 and libadwaita
 gtk4 = { version = "0.9", package = "gtk4" }
-libadwaita = { version = "0.7", package = "libadwaita" }
+libadwaita = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
 gio = "0.20"
 
 # HTTP client and async runtime
