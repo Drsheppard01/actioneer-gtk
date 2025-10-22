@@ -295,6 +295,8 @@ All major features from the macOS app have been successfully implemented and tes
 
 ## Recent Updates (Current Session - Continued)
 
+- **GNOME notifications migration** [✅] — Reworked the Linux notification backend to use `gio::Notification`, added a toolbar test button for manual checks, and confirmed delivery through GNOME Shell.
+
 - **Desktop icon defaults** ✅ — Register the `actioneer` icon name during `Application::startup` so GNOME uses the bundled hicolor icon without extra configuration. Documented install steps already cover copying the icon assets.
 
 - **Notifications polish** ✅ — Desktop alerts now honour the notification toggle, fire for every completion outcome, log detailed errors, and removed the unused sound preference toggle.

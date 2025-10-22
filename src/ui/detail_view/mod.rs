@@ -55,6 +55,7 @@ impl RepoDetailPane {
         preferences_manager: Option<Arc<PreferencesManager>>,
         cache: Arc<DataCache>,
         favorites: Arc<Mutex<HashSet<i64>>>,
+        notification_manager: Option<NotificationManager>,
     ) -> Self {
         info!("Creating RepoDetailPane for: {}", repo.full_name);
         let workflows = Arc::new(Mutex::new(Vec::new()));
@@ -83,7 +84,8 @@ impl RepoDetailPane {
         let toast_overlay = adw::ToastOverlay::new();
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let run_digests = Arc::new(Mutex::new(HashMap::new()));
-        let notification_manager = Some(NotificationManager::new("me.spaceinbox.actioneer"));
+        let notification_manager = notification_manager
+            .or_else(|| Some(NotificationManager::new("me.spaceinbox.actioneer")));
 
         let pane = Self {
             parent: parent.clone(),

@@ -1,20 +1,29 @@
-use notify_rust::{Notification, Timeout, Urgency};
-use tokio::task;
-use tracing::{debug, error, info};
+use anyhow::anyhow;
+use gtk4::prelude::ApplicationExt;
+use gtk4::{gio, glib};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::oneshot;
+use tracing::{debug, error, info, warn};
+
+const DEFAULT_ICON_NAME: &str = "actioneer";
 
 /// Notification manager for Linux using XDG Desktop Notifications
 /// Similar to NotificationManager.swift in macOS version
 #[derive(Clone)]
-#[allow(dead_code)] // Will be used when integrated with UI
 pub struct NotificationManager {
-    app_name: String,
+    app_id: String,
+    icon_name: String,
 }
 
-#[allow(dead_code)] // Will be used when integrated with UI
 impl NotificationManager {
-    pub fn new(app_name: impl Into<String>) -> Self {
+    pub fn new(app_id: impl Into<String>) -> Self {
+        Self::with_icon(app_id, DEFAULT_ICON_NAME)
+    }
+
+    pub fn with_icon(app_id: impl Into<String>, icon_name: impl Into<String>) -> Self {
         Self {
-            app_name: app_name.into(),
+            app_id: app_id.into(),
+            icon_name: icon_name.into(),
         }
     }
 
@@ -23,66 +32,52 @@ impl NotificationManager {
         &self,
         workflow_name: &str,
         run_title: &str,
-        _status: &str,
+        status: &str,
         conclusion: Option<&str>,
     ) -> anyhow::Result<()> {
         let summary = format!("Workflow Completed: {}", workflow_name);
         let body = format!("{} - {}", run_title, self.conclusion_text(conclusion));
 
-        // Determine urgency based on conclusion
-        let urgency = if conclusion == Some("failure") { 2 } else { 1 }; // 0=low, 1=normal, 2=critical
+        let priority = if conclusion == Some("failure") {
+            gio::NotificationPriority::High
+        } else {
+            gio::NotificationPriority::Normal
+        };
 
         info!(
             workflow = workflow_name,
             run = run_title,
             conclusion = conclusion.unwrap_or("unknown"),
+            status = status,
             "Dispatching workflow completion notification"
         );
 
-        self.send_notification(&summary, &body, urgency).await?;
+        self.dispatch_notification(
+            Some(
+                self.make_notification_id("workflow", &format!("{}-{}", workflow_name, run_title)),
+            ),
+            summary,
+            Some(body),
+            priority,
+        )
+        .await?;
 
         debug!("Notification sent successfully");
 
         Ok(())
     }
 
-    /// Send a generic notification
-    async fn send_notification(
-        &self,
-        summary: &str,
-        body: &str,
-        urgency: u8,
-    ) -> anyhow::Result<()> {
-        let summary = summary.to_string();
-        let body = body.to_string();
-        let app_name = self.app_name.clone();
+    /// Send a generic notification for manual testing or informational messages
+    pub async fn notify_message(&self, title: &str, body: &str) -> anyhow::Result<()> {
+        debug!("Dispatching manual notification: {}", title);
 
-        task::spawn_blocking(move || {
-            let urgency_level = match urgency {
-                0 => Urgency::Low,
-                2 => Urgency::Critical,
-                _ => Urgency::Normal,
-            };
-
-            debug!(
-                "Sending notification: {} - {} (urgency: {:?})",
-                summary, body, urgency_level
-            );
-
-            let mut notification = Notification::new();
-            notification
-                .summary(&summary)
-                .body(&body)
-                .appname(&app_name)
-                .urgency(urgency_level)
-                .timeout(Timeout::Milliseconds(8000));
-
-            if let Err(err) = notification.show() {
-                error!("Failed to show desktop notification: {}", err);
-            }
-        })
+        self.dispatch_notification(
+            Some(self.make_notification_id("message", title)),
+            title.to_string(),
+            Some(body.to_string()),
+            gio::NotificationPriority::Normal,
+        )
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to dispatch notification: {}", e))
     }
 
     fn conclusion_text(&self, conclusion: Option<&str>) -> String {
@@ -108,6 +103,87 @@ impl NotificationManager {
                 .join(" "),
             None => "Completed".to_string(),
         }
+    }
+
+    async fn dispatch_notification(
+        &self,
+        identifier: Option<String>,
+        title: String,
+        body: Option<String>,
+        priority: gio::NotificationPriority,
+    ) -> anyhow::Result<()> {
+        let icon_name = self.icon_name.clone();
+        let (sender, receiver) = oneshot::channel();
+
+        glib::MainContext::default().invoke(move || {
+            let result = (|| -> anyhow::Result<()> {
+                let Some(application) = gio::Application::default() else {
+                    return Err(anyhow!("No active GApplication registered"));
+                };
+
+                let notification = gio::Notification::new(&title);
+                if let Some(body) = body.as_ref() {
+                    notification.set_body(Some(body));
+                }
+                notification.set_priority(priority);
+
+                let icon = gio::ThemedIcon::new(&icon_name);
+                notification.set_icon(&icon);
+
+                if let Some(identifier) = identifier.as_ref() {
+                    application.send_notification(Some(identifier), &notification);
+                } else {
+                    application.send_notification(None, &notification);
+                }
+
+                Ok(())
+            })();
+
+            if sender.send(result).is_err() {
+                warn!("Notification receiver dropped before completion");
+            }
+        });
+
+        match receiver.await {
+            Ok(result) => {
+                if let Err(ref err) = result {
+                    error!("Failed to send GNOME notification: {}", err);
+                }
+                result
+            }
+            Err(_) => {
+                error!("Notification dispatcher dropped before completion");
+                Err(anyhow!("Notification dispatcher dropped before sending"))
+            }
+        }
+    }
+
+    fn make_notification_id(&self, scope: &str, key: &str) -> String {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+
+        format!(
+            "{}.{}.{}.{}",
+            self.app_id,
+            Self::sanitize_key(scope),
+            Self::sanitize_key(key),
+            timestamp
+        )
+    }
+
+    fn sanitize_key(value: &str) -> String {
+        value
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() {
+                    ch.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect()
     }
 }
 

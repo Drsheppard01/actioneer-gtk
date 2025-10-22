@@ -6,6 +6,7 @@ use crate::api::models::{RateLimitInfo, Repo};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
 use crate::favorites::FavoritesManager;
+use crate::notifications::NotificationManager;
 use crate::preferences::PreferencesManager;
 use crate::storage::TokenStorage;
 use crate::ui::auth_window::AuthWindow;
@@ -52,6 +53,7 @@ pub struct MainWindow {
     active_detail: Rc<RefCell<Option<RepoDetailPane>>>,
     background_refresh_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     handling_selection: Arc<Mutex<bool>>,
+    notification_manager: Option<NotificationManager>,
 }
 
 impl MainWindow {
@@ -132,6 +134,7 @@ impl MainWindow {
         let background_refresh_task = Arc::new(Mutex::new(None));
         let handling_selection = Arc::new(Mutex::new(false));
         let header_spinner = Rc::new(RefCell::new(None));
+        let notification_manager = Some(NotificationManager::new("me.spaceinbox.actioneer"));
 
         let main_window = Self {
             window: window.clone(),
@@ -158,6 +161,7 @@ impl MainWindow {
             active_detail: active_detail.clone(),
             background_refresh_task: background_refresh_task.clone(),
             handling_selection: handling_selection.clone(),
+            notification_manager: notification_manager.clone(),
         };
 
         main_window.build_ui();
@@ -196,6 +200,11 @@ impl MainWindow {
 
         let refresh_button = self.refresh_button.clone();
         header.pack_start(&refresh_button);
+
+        let notification_button = gtk::Button::from_icon_name("dialog-information-symbolic");
+        notification_button.add_css_class("flat");
+        notification_button.set_tooltip_text(Some("Send test notification"));
+        header.pack_start(&notification_button);
 
         let preferences_button = gtk::Button::from_icon_name("emblem-system-symbolic");
         preferences_button.set_tooltip_text(Some("Preferences"));
@@ -291,10 +300,36 @@ impl MainWindow {
         });
 
         self.connect_refresh_button(&refresh_button);
+        self.connect_notification_test_button(&notification_button);
         self.connect_signout_button(&signout_button);
         self.connect_preferences_button(&preferences_button);
         self.connect_search();
         self.connect_repo_selection();
+    }
+
+    fn connect_notification_test_button(&self, button: &gtk::Button) {
+        match self.notification_manager.clone() {
+            Some(manager) => {
+                button.connect_clicked(move |_| {
+                    let manager = manager.clone();
+                    crate::runtime_handle().spawn(async move {
+                        if let Err(err) = manager
+                            .notify_message(
+                                "Actioneer notification test",
+                                "If you can read this, GNOME notifications are working.",
+                            )
+                            .await
+                        {
+                            warn!("Failed to dispatch test notification: {}", err);
+                        }
+                    });
+                });
+            }
+            None => {
+                button.set_sensitive(false);
+                button.set_tooltip_text(Some("Notifications unavailable"));
+            }
+        }
     }
 
     fn check_authentication(&self) {
@@ -819,6 +854,7 @@ impl MainWindow {
                     self.preferences_manager.clone(),
                     self.cache.clone(),
                     self.favorites.clone(),
+                    self.notification_manager.clone(),
                 );
                 let stack = self.detail_stack.clone();
                 let active_detail = self.active_detail.clone();
