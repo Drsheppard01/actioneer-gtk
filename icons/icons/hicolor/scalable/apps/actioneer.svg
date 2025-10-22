@@ -17,7 +17,7 @@
         <mask id="mask-3" fill="white">
             <use xlink:href="#path-2"></use>
         </mask>
-        <use id="Rectangle" stroke="#ECEFF3" stroke-width="4" xlink:href="#path-2"></use>
+        <use id="Rectangle" stroke="#888888" stroke-width="1" xlink:href="#path-2"></use>
         <g id="2" stroke-width="1" fill-rule="evenodd" mask="url(#mask-3)">
             <g transform="translate(-48, -48)" fill-rule="nonzero">
                 <circle id="Oval" fill="url(#radialGradient-4)" opacity="0.45" cx="564" cy="564" r="398"></circle>
