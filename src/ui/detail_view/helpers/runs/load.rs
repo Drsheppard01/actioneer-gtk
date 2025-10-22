@@ -5,6 +5,7 @@ use crate::api::models::WorkflowRun;
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
 use crate::notifications::NotificationManager;
+use crate::preferences::PreferencesManager;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -41,6 +42,7 @@ pub(crate) struct LoadRunsParams {
     pub background: bool,
     pub run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     pub notification_manager: Option<NotificationManager>,
+    pub preferences_manager: Option<Arc<PreferencesManager>>,
 }
 
 pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
@@ -63,6 +65,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
         background,
         run_digests,
         notification_manager,
+        preferences_manager,
     } = params;
 
     let expanded_run_ids: HashSet<i64> = expanded_run_ids.into_iter().collect();
@@ -141,13 +144,24 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                     {
                         let notification_requests = collect_completed_notifications(prev, &runs);
                         if !notification_requests.is_empty() {
-                            let manager = manager.clone();
+                            let window_is_active = parent_window_clone.is_active();
                             let workflow_label = workflow_name.clone();
+                            let preferences_manager = preferences_manager.clone();
+                            crate::runtime_handle().spawn(async move {
+                                if window_is_active {
+                                    return;
+                                }
 
-                            for (run_title, status, conclusion) in notification_requests {
-                                let manager = manager.clone();
-                                let workflow_label = workflow_label.clone();
-                                crate::runtime_handle().spawn(async move {
+                                let notifications_enabled = match preferences_manager {
+                                    Some(manager) => manager.get().await.enable_notifications,
+                                    None => true,
+                                };
+
+                                if !notifications_enabled {
+                                    return;
+                                }
+
+                                for (run_title, status, conclusion) in notification_requests {
                                     if let Err(err) = manager
                                         .notify_workflow_completed(
                                             &workflow_label,
@@ -162,8 +176,8 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                                             err
                                         );
                                     }
-                                });
-                            }
+                                }
+                            });
                         }
                     }
                 }
@@ -233,6 +247,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                         &run_digests_for_ui,
                         workflow_name.clone(),
                         notification_manager.clone(),
+                        preferences_manager.clone(),
                     );
                 }
             }
@@ -452,6 +467,7 @@ fn append_error_state(
     run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     workflow_name: String,
     notification_manager: Option<NotificationManager>,
+    preferences_manager: Option<Arc<PreferencesManager>>,
 ) {
     error!("Failed to load runs: {}", error);
 
@@ -489,6 +505,7 @@ fn append_error_state(
     let run_digests_retry = run_digests.clone();
     let workflow_name_retry = workflow_name.clone();
     let notification_manager_retry = notification_manager.clone();
+    let preferences_manager_retry = preferences_manager.clone();
 
     retry_button.connect_clicked(move |_| {
         clear_runs_box(&runs_box_retry);
@@ -511,6 +528,7 @@ fn append_error_state(
             background: false,
             run_digests: run_digests_retry.clone(),
             notification_manager: notification_manager_retry.clone(),
+            preferences_manager: preferences_manager_retry.clone(),
         });
     });
 

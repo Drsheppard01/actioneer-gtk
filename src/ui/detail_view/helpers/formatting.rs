@@ -20,12 +20,20 @@ pub(crate) fn format_run_title(run: &WorkflowRun) -> String {
 pub(crate) fn format_run_subtitle(run: &WorkflowRun) -> String {
     let mut parts = Vec::new();
 
-    if let Some(status) = &run.status {
-        parts.push(status.clone());
+    let status_text = run.friendly_status();
+    if !status_text.is_empty() {
+        parts.push(status_text);
     }
 
     if run.conclusion.is_some() {
-        parts.push(run.friendly_conclusion());
+        let conclusion_text = run.friendly_conclusion();
+        if !conclusion_text.is_empty()
+            && !parts
+                .iter()
+                .any(|part| part.eq_ignore_ascii_case(&conclusion_text))
+        {
+            parts.push(conclusion_text);
+        }
     }
 
     if let Some(branch) = &run.head_branch {
@@ -229,8 +237,7 @@ mod tests {
         run.updated_at = Some("2024-01-01T00:00:00Z".into());
 
         let subtitle = format_run_subtitle(&run);
-        assert!(subtitle.contains("completed"));
-        assert!(subtitle.contains("success"));
+        assert!(subtitle.contains("Success"));
         assert!(subtitle.contains("main"));
     }
 

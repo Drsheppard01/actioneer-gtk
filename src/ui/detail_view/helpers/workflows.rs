@@ -4,6 +4,7 @@ use crate::api::models::Workflow;
 use crate::api::GitHubClient;
 use crate::cache::DataCache;
 use crate::notifications::NotificationManager;
+use crate::preferences::PreferencesManager;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -28,6 +29,7 @@ pub(crate) fn create_workflow_expander_row(
     workflows_with_active: Arc<Mutex<HashSet<i64>>>,
     run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     notification_manager: Option<NotificationManager>,
+    preferences_manager: Option<Arc<PreferencesManager>>,
     initial_expanded_run_ids: Vec<i64>,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
@@ -98,8 +100,10 @@ pub(crate) fn create_workflow_expander_row(
     let job_contexts_for_trigger = job_contexts.clone();
     let run_digests_shared = run_digests.clone();
     let notification_manager_shared = notification_manager.clone();
+    let preferences_manager_shared = preferences_manager.clone();
     let run_digests_for_trigger = run_digests_shared.clone();
     let notification_manager_for_trigger = notification_manager_shared.clone();
+    let preferences_manager_for_trigger = preferences_manager_shared.clone();
     let initial_expanded_run_ids = Rc::new(RefCell::new(Some(initial_expanded_run_ids)));
     let workflows_with_active_shared = workflows_with_active.clone();
 
@@ -130,6 +134,7 @@ pub(crate) fn create_workflow_expander_row(
     let workflows_with_active_for_signal = workflows_with_active_shared.clone();
     let run_digests_for_signal = run_digests_shared.clone();
     let notification_manager_for_signal = notification_manager_shared.clone();
+    let preferences_manager_for_signal = preferences_manager_shared.clone();
 
     let is_programmatic_expand = Rc::new(Cell::new(false));
     let is_programmatic_for_signal = is_programmatic_expand.clone();
@@ -187,6 +192,7 @@ pub(crate) fn create_workflow_expander_row(
                 background: false,
                 run_digests: run_digests_for_signal.clone(),
                 notification_manager: notification_manager_for_signal.clone(),
+                preferences_manager: preferences_manager_for_signal.clone(),
             });
         }
     });
@@ -227,6 +233,7 @@ pub(crate) fn create_workflow_expander_row(
                     background: false,
                     run_digests: run_digests_shared.clone(),
                     notification_manager: notification_manager_shared.clone(),
+                    preferences_manager: preferences_manager_shared.clone(),
                 });
             }
         }
@@ -248,6 +255,7 @@ pub(crate) fn create_workflow_expander_row(
     let workflows_with_active_button = workflows_with_active_shared.clone();
     let run_digests = run_digests_for_trigger.clone();
     let notification_manager = notification_manager_for_trigger.clone();
+    let preferences_manager = preferences_manager_for_trigger.clone();
 
         let dialog = gtk::Dialog::with_buttons(
             Some("Trigger Workflow"),
@@ -319,7 +327,8 @@ pub(crate) fn create_workflow_expander_row(
         let parent_window_clone = parent_window.clone();
         let workflows_with_active_clone = workflows_with_active_button.clone();
         let run_digests_clone = run_digests.clone();
-        let notification_manager_rc = Rc::new(notification_manager.clone());
+    let notification_manager_rc = Rc::new(notification_manager.clone());
+    let preferences_manager_rc = Rc::new(preferences_manager.clone());
 
         dialog.connect_response(move |dialog, response| {
             if response == gtk::ResponseType::Accept {
@@ -364,11 +373,13 @@ pub(crate) fn create_workflow_expander_row(
                 let run_digests_for_reload = run_digests_clone.clone();
                 let workflow_display_for_closure = workflow_display_rc.clone();
                 let notification_manager_for_closure = notification_manager_rc.clone();
+                let preferences_manager_for_closure = preferences_manager_rc.clone();
 
                 receiver.attach(None, move |result| {
                     let workflows_with_active = workflows_with_active.clone();
                     let workflow_display_handle = workflow_display_for_closure.clone();
                     let notification_manager_handle = notification_manager_for_closure.clone();
+                    let preferences_manager_handle = preferences_manager_for_closure.clone();
                     match result {
                         Ok(branch_name) => {
                             info!("Workflow triggered successfully on branch: {}", branch_name);
@@ -390,6 +401,8 @@ pub(crate) fn create_workflow_expander_row(
                                 workflow_display_handle.as_ref().clone();
                             let notification_manager_for_reload =
                                 notification_manager_handle.as_ref().clone();
+                            let preferences_manager_for_reload =
+                                preferences_manager_handle.as_ref().clone();
 
                             crate::runtime_handle().spawn(async move {
                                 cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
@@ -414,6 +427,8 @@ pub(crate) fn create_workflow_expander_row(
                                         workflow_display_for_reload.clone();
                                     let notification_manager_for_runs =
                                         notification_manager_for_reload.clone();
+                                    let preferences_manager_for_runs =
+                                        preferences_manager_for_reload.clone();
 
                                     load_workflow_runs(LoadRunsParams {
                                         client: client_for_reload.clone(),
@@ -434,6 +449,7 @@ pub(crate) fn create_workflow_expander_row(
                                         background: false,
                                         run_digests: run_digests_for_refresh.clone(),
                                         notification_manager: notification_manager_for_runs,
+                                        preferences_manager: preferences_manager_for_runs,
                                     });
                                 }
                             });

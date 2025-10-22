@@ -313,6 +313,7 @@ impl RepoDetailPane {
         let workflows_with_active_runs = self.workflows_with_active_runs.clone();
         let run_digests = self.run_digests.clone();
         let notification_manager = self.notification_manager.clone();
+        let preferences_manager = self.preferences_manager.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -335,6 +336,7 @@ impl RepoDetailPane {
             *loading_guard.lock() = false;
 
             let notification_manager_for_ui = notification_manager.clone();
+            let preferences_manager_for_ui = preferences_manager.clone();
 
             match result {
                 Ok(wf_list) => {
@@ -362,6 +364,7 @@ impl RepoDetailPane {
                         &workflows_with_active_runs,
                         &run_digests,
                         notification_manager_for_ui.clone(),
+                        preferences_manager_for_ui.clone(),
                     );
                 }
                 Err(e) => {
@@ -380,6 +383,7 @@ impl RepoDetailPane {
                         &workflows_with_active_runs,
                         &run_digests,
                         notification_manager_for_ui.clone(),
+                        preferences_manager_for_ui.clone(),
                     );
                     let message = format!("Failed to load workflows: {}", e);
                     let toast_overlay = toast_overlay.clone();
@@ -436,6 +440,7 @@ impl RepoDetailPane {
         let workflows_with_active_runs = self.workflows_with_active_runs.clone();
         let run_digests = self.run_digests.clone();
         let notification_manager = self.notification_manager.clone();
+        let preferences_manager = self.preferences_manager.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -448,10 +453,12 @@ impl RepoDetailPane {
         receiver.attach(None, move |result| {
             let run_digests = run_digests.clone();
             let notification_manager_handle = notification_manager.clone();
+            let preferences_manager_handle = preferences_manager.clone();
             // Clear loading flag
             *loading_guard.lock() = false;
 
             let notification_manager_for_ui = notification_manager_handle.clone();
+            let preferences_manager_for_ui = preferences_manager_handle.clone();
 
             match result {
                 Ok(wf_list) => {
@@ -473,6 +480,7 @@ impl RepoDetailPane {
                             &workflows_with_active_runs,
                             &run_digests,
                             notification_manager_for_ui.clone(),
+                            preferences_manager_for_ui.clone(),
                         );
                     }
                 }
@@ -511,6 +519,7 @@ impl RepoDetailPane {
         let workflows_with_active_runs = self.workflows_with_active_runs.clone();
         let run_digests = self.run_digests.clone();
         let notification_manager = self.notification_manager.clone();
+        let preferences_manager = self.preferences_manager.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -536,6 +545,7 @@ impl RepoDetailPane {
             let workflows_with_active_runs = workflows_with_active_runs.clone();
             let run_digests = run_digests.clone();
             let notification_manager_handle = notification_manager.clone();
+            let preferences_manager_handle = preferences_manager.clone();
 
             // Show loading spinner
             callback_refs.show_loading(true);
@@ -554,6 +564,7 @@ impl RepoDetailPane {
             let workflows_with_active_runs_for_ui = workflows_with_active_runs.clone();
             let run_digests_for_ui = run_digests.clone();
             let notification_manager_for_ui = notification_manager_handle.clone();
+            let preferences_manager_for_ui = preferences_manager_handle.clone();
 
             receiver.attach(None, move |result| {
                 // Hide loading spinner
@@ -579,6 +590,7 @@ impl RepoDetailPane {
                             &workflows_with_active_runs_for_ui,
                             &run_digests_for_ui,
                             notification_manager_for_ui.clone(),
+                            preferences_manager_for_ui.clone(),
                         );
                     }
                     Err(e) => {
@@ -686,6 +698,7 @@ impl RepoDetailPane {
         let toast_overlay = self.toast_overlay.clone();
         let run_digests = self.run_digests.clone();
         let notification_manager = self.notification_manager.clone();
+        let preferences_manager = self.preferences_manager.clone();
 
         info!(
             "Starting auto-refresh timer with interval: {} seconds",
@@ -708,6 +721,7 @@ impl RepoDetailPane {
                 &job_contexts,
                 &run_digests,
                 &notification_manager,
+                &preferences_manager,
             );
 
             glib::ControlFlow::Continue
@@ -729,6 +743,7 @@ impl RepoDetailPane {
         job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
         run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
         notification_manager: &Option<NotificationManager>,
+        preferences_manager: &Option<Arc<PreferencesManager>>,
     ) {
         let mut observed_active: HashSet<i64> = HashSet::new();
 
@@ -781,6 +796,8 @@ impl RepoDetailPane {
                                                     });
                                                 let notification_manager_clone =
                                                     notification_manager.clone();
+                                                let preferences_manager_clone =
+                                                    preferences_manager.clone();
 
                                                 load_workflow_runs(LoadRunsParams {
                                                     client: client.clone(),
@@ -803,6 +820,7 @@ impl RepoDetailPane {
                                                     run_digests: run_digests.clone(),
                                                     notification_manager:
                                                         notification_manager_clone,
+                                                    preferences_manager: preferences_manager_clone,
                                                 });
                                             }
                                         }
@@ -912,6 +930,7 @@ fn update_workflows_list(
     workflows_with_active_runs: &Arc<Mutex<HashSet<i64>>>,
     run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     notification_manager: Option<NotificationManager>,
+    preferences_manager: Option<Arc<PreferencesManager>>,
 ) {
     // First, collect which workflows are currently expanded
     let mut expanded_ids = HashSet::new();
@@ -1008,6 +1027,7 @@ fn update_workflows_list(
             workflows_with_active_runs.clone(),
             run_digests.clone(),
             notification_manager.clone(),
+            preferences_manager.clone(),
             preserved_run_ids,
         );
         list_box.append(&expander_row);

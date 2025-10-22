@@ -218,11 +218,8 @@ All major features from the macOS app have been successfully implemented and tes
 - [✅] Desktop notification support via notify-rust
 - [✅] Conclusion text formatting (Success ✓, Failed ✗, etc.)
 - [✅] **Wire notifications to workflow completion detection**
-  - **Current status:** NotificationManager exists but not instantiated/used
-  - **Action needed:** Detect when workflow transitions to completed state
-  - **Action needed:** Call notify_workflow_completed() when workflows finish
-  - **File to modify:** src/ui/detail_view/mod.rs (auto-refresh logic)
-  - **macOS comparison:** macOS sends notifications when workflows complete
+   - **Current status:** Notifications fire when runs finish, respect the preference toggle, and only display when the main window is inactive
+   - **Follow-up:** Consider wiring `enable_sounds` to audible alerts on failures
 
 ---
 
@@ -297,6 +294,8 @@ All major features from the macOS app have been successfully implemented and tes
 - Error handling improvements
 
 ## Recent Updates (Current Session - Continued)
+
+- **Preferences-aware notifications** ✅ — Desktop alerts now honour the user's notification preference, only fire when the window is inactive, and run subtitles show friendly status text for clearer summaries.
 
 - **Background run refresh overhaul** ✅ — Timer now fetches workflows and runs for every workflow using the shared digest map. UI updates only when data changes, status badges stay in sync for collapsed expanders, and job contexts are preserved during background refreshes.
 
