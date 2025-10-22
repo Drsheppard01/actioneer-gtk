@@ -13,7 +13,7 @@ use libadwaita as adw;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct RunDigest {
@@ -149,6 +149,10 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                             let preferences_manager = preferences_manager.clone();
                             crate::runtime_handle().spawn(async move {
                                 if window_is_active {
+                                    debug!(
+                                        workflow = workflow_label.as_str(),
+                                        "Skipping notification because window is active"
+                                    );
                                     return;
                                 }
 
@@ -158,9 +162,19 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                                 };
 
                                 if !notifications_enabled {
+                                    debug!(
+                                        workflow = workflow_label.as_str(),
+                                        "Notifications disabled in preferences"
+                                    );
                                     return;
                                 }
 
+                                let total = notification_requests.len();
+                                debug!(
+                                    workflow = workflow_label.as_str(),
+                                    count = total,
+                                    "Sending workflow completion notification(s)"
+                                );
                                 for (run_title, status, conclusion) in notification_requests {
                                     if let Err(err) = manager
                                         .notify_workflow_completed(
@@ -403,7 +417,7 @@ fn collect_completed_notifications(
             let prev_completed = is_completed_status(prior.status.as_ref());
             let conclusion_changed = prior.conclusion != run.conclusion;
 
-            if (!prev_completed || conclusion_changed) && run.conclusion.is_some() {
+            if !prev_completed || conclusion_changed {
                 let title = build_run_notification_title(run);
                 let status = run
                     .status

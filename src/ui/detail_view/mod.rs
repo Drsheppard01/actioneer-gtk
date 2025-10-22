@@ -83,7 +83,7 @@ impl RepoDetailPane {
         let toast_overlay = adw::ToastOverlay::new();
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let run_digests = Arc::new(Mutex::new(HashMap::new()));
-        let notification_manager = Some(NotificationManager::new("Actioneer"));
+        let notification_manager = Some(NotificationManager::new("me.spaceinbox.actioneer"));
 
         let pane = Self {
             parent: parent.clone(),

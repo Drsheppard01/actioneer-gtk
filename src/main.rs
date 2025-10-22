@@ -15,7 +15,7 @@ use tokio::runtime::{Builder, Handle};
 use tracing::info;
 use ui::MainWindow;
 
-const APP_ID: &str = "com.github.Actioneer";
+const APP_ID: &str = "me.spaceinbox.actioneer";
 
 // Global runtime handle
 static RUNTIME_HANDLE: OnceLock<Handle> = OnceLock::new();
@@ -63,6 +63,10 @@ fn main() -> anyhow::Result<()> {
 
     // Create GTK application
     let app = adw::Application::builder().application_id(APP_ID).build();
+
+    app.connect_startup(|_| {
+        gtk4::Window::set_default_icon_name("actioneer");
+    });
 
     app.connect_activate(build_ui);
 

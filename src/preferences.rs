@@ -21,9 +21,6 @@ pub struct Preferences {
 
     /// Show notifications
     pub enable_notifications: bool,
-
-    /// Play sound on workflow completion
-    pub enable_sounds: bool,
 }
 
 impl Default for Preferences {
@@ -34,7 +31,6 @@ impl Default for Preferences {
             window_width: 1000,
             window_height: 700,
             enable_notifications: true,
-            enable_sounds: true,
         }
     }
 }
@@ -107,10 +103,6 @@ impl PreferencesManager {
 
     pub async fn set_notifications_enabled(&self, enabled: bool) -> anyhow::Result<()> {
         self.update(|p| p.enable_notifications = enabled).await
-    }
-
-    pub async fn set_sounds_enabled(&self, enabled: bool) -> anyhow::Result<()> {
-        self.update(|p| p.enable_sounds = enabled).await
     }
 
     pub fn subscribe(&self) -> watch::Receiver<Preferences> {

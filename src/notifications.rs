@@ -1,6 +1,6 @@
-use notify_rust::{Hint, Notification, Timeout, Urgency};
+use notify_rust::{Notification, Timeout, Urgency};
 use tokio::task;
-use tracing::{debug, warn};
+use tracing::{debug, error, info};
 
 /// Notification manager for Linux using XDG Desktop Notifications
 /// Similar to NotificationManager.swift in macOS version
@@ -32,14 +32,16 @@ impl NotificationManager {
         // Determine urgency based on conclusion
         let urgency = if conclusion == Some("failure") { 2 } else { 1 }; // 0=low, 1=normal, 2=critical
 
+        info!(
+            workflow = workflow_name,
+            run = run_title,
+            conclusion = conclusion.unwrap_or("unknown"),
+            "Dispatching workflow completion notification"
+        );
+
         self.send_notification(&summary, &body, urgency).await?;
 
-        debug!(
-            "Notification sent: {} - {} ({})",
-            workflow_name,
-            run_title,
-            conclusion.unwrap_or("unknown")
-        );
+        debug!("Notification sent successfully");
 
         Ok(())
     }
@@ -75,12 +77,8 @@ impl NotificationManager {
                 .urgency(urgency_level)
                 .timeout(Timeout::Milliseconds(8000));
 
-            if urgency_level == Urgency::Critical {
-                notification.hint(Hint::DesktopEntry("dialog-warning".into()));
-            }
-
             if let Err(err) = notification.show() {
-                warn!("Failed to show desktop notification: {}", err);
+                error!("Failed to show desktop notification: {}", err);
             }
         })
         .await
@@ -108,7 +106,7 @@ impl NotificationManager {
                 })
                 .collect::<Vec<_>>()
                 .join(" "),
-            None => "Unknown".to_string(),
+            None => "Completed".to_string(),
         }
     }
 }
@@ -124,6 +122,6 @@ mod tests {
         assert_eq!(manager.conclusion_text(Some("success")), "Success ✓");
         assert_eq!(manager.conclusion_text(Some("failure")), "Failed ✗");
         assert_eq!(manager.conclusion_text(Some("cancelled")), "Cancelled");
-        assert_eq!(manager.conclusion_text(None), "Unknown");
+        assert_eq!(manager.conclusion_text(None), "Completed");
     }
 }

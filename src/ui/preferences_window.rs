@@ -57,19 +57,6 @@ impl PreferencesWindow {
         notify_row.set_activatable_widget(Some(&notify_switch));
         notifications_group.add(&notify_row);
 
-        let sounds_row = adw::ActionRow::builder()
-            .title("Play Sound")
-            .subtitle("Play an alert when a workflow fails")
-            .build();
-        let sounds_switch = gtk::Switch::new();
-        sounds_switch.set_hexpand(false);
-        sounds_switch.set_vexpand(false);
-        sounds_switch.set_halign(gtk::Align::End);
-        sounds_switch.set_valign(gtk::Align::Center);
-        sounds_row.add_suffix(&sounds_switch);
-        sounds_row.set_activatable_widget(Some(&sounds_switch));
-        notifications_group.add(&sounds_row);
-
         general_page.add(&refresh_group);
         general_page.add(&notifications_group);
         window.add(&general_page);
@@ -77,7 +64,6 @@ impl PreferencesWindow {
         let manager_clone = manager.clone();
         let combo_clone = refresh_row.clone();
         let notify_clone = notify_switch.clone();
-        let sounds_clone = sounds_switch.clone();
         let (sender, receiver) =
             glib::MainContext::default().channel::<Preferences>(glib::Priority::default());
 
@@ -97,7 +83,6 @@ impl PreferencesWindow {
             };
             combo_clone.set_selected(index);
             notify_clone.set_active(prefs.enable_notifications);
-            sounds_clone.set_active(prefs.enable_sounds);
             glib::ControlFlow::Break
         });
 
@@ -126,17 +111,6 @@ impl PreferencesWindow {
             runtime_handle().spawn(async move {
                 if let Err(err) = manager.set_notifications_enabled(state).await {
                     warn!("Failed to update notifications preference: {}", err);
-                }
-            });
-            Propagation::Proceed
-        });
-
-        let manager_for_sounds = manager.clone();
-        sounds_switch.connect_state_set(move |_, state| {
-            let manager = manager_for_sounds.clone();
-            runtime_handle().spawn(async move {
-                if let Err(err) = manager.set_sounds_enabled(state).await {
-                    warn!("Failed to update sound preference: {}", err);
                 }
             });
             Propagation::Proceed

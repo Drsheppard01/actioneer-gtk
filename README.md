@@ -63,6 +63,23 @@ See [CONFIGURATION_GUIDE.md](CONFIGURATION_GUIDE.md) for detailed setup instruct
 cargo run
 ```
 
+## Desktop Integration
+
+To integrate Actioneer with GNOME Shell (application overview, search, and notifications), install the desktop entry and icons into your local data directories:
+
+```bash
+# Desktop entry
+mkdir -p ~/.local/share/applications
+cp data/me.spaceinbox.actioneer.desktop ~/.local/share/applications/
+
+# App icons (hicolor theme)
+mkdir -p ~/.local/share/icons
+cp -r icons/icons/hicolor ~/.local/share/icons/
+gtk-update-icon-cache ~/.local/share/icons/hicolor
+```
+
+Log out and back in (or restart GNOME Shell) after installation so the new icon and launcher appear in the overview. For system-wide installs, copy the same files to `/usr/share/applications` and `/usr/share/icons/hicolor` instead.
+
 ## Development
 
 ### Format code

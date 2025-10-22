@@ -218,8 +218,8 @@ All major features from the macOS app have been successfully implemented and tes
 - [✅] Desktop notification support via notify-rust
 - [✅] Conclusion text formatting (Success ✓, Failed ✗, etc.)
 - [✅] **Wire notifications to workflow completion detection**
-   - **Current status:** Notifications fire when runs finish, respect the preference toggle, and only display when the main window is inactive
-   - **Follow-up:** Consider wiring `enable_sounds` to audible alerts on failures
+   - **Current status:** Notifications fire for every completion state, respect the preference toggle, and only display when the main window is inactive
+   - **Follow-up:** Investigate migrating to `GNotification`/`g_application_send_notification` for tighter GNOME integration
 
 ---
 
@@ -295,7 +295,9 @@ All major features from the macOS app have been successfully implemented and tes
 
 ## Recent Updates (Current Session - Continued)
 
-- **Preferences-aware notifications** ✅ — Desktop alerts now honour the user's notification preference, only fire when the window is inactive, and run subtitles show friendly status text for clearer summaries.
+- **Desktop icon defaults** ✅ — Register the `actioneer` icon name during `Application::startup` so GNOME uses the bundled hicolor icon without extra configuration. Documented install steps already cover copying the icon assets.
+
+- **Notifications polish** ✅ — Desktop alerts now honour the notification toggle, fire for every completion outcome, log detailed errors, and removed the unused sound preference toggle.
 
 - **Background run refresh overhaul** ✅ — Timer now fetches workflows and runs for every workflow using the shared digest map. UI updates only when data changes, status badges stay in sync for collapsed expanders, and job contexts are preserved during background refreshes.
 

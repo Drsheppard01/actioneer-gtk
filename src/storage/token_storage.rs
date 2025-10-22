@@ -5,7 +5,7 @@ use keyring::Entry;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
-const SERVICE_NAME: &str = "com.github.Actioneer";
+const SERVICE_NAME: &str = "me.spaceinbox.actioneer";
 const TOKEN_KEY: &str = "github_token";
 
 #[derive(Debug, Error)]
