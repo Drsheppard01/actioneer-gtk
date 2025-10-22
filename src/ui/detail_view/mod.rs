@@ -794,7 +794,7 @@ impl RepoDetailPane {
                                                     expander: expander.clone(),
                                                     cache: cache.clone(),
                                                     toast_overlay: toast_overlay.clone(),
-                                                    bypass_cache: false,
+                                                    bypass_cache: true,
                                                     job_contexts: job_contexts.clone(),
                                                     expanded_run_ids: preserved_runs,
                                                     workflows_with_active: workflows_with_active
