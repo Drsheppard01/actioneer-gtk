@@ -30,7 +30,7 @@ All major features from the macOS app have been successfully implemented and tes
 - Visual polish and UI improvements ✅
 
 **What's NOT done (from macOS comparison):**
-- ✅ **Workflow completion notifications** - NotificationManager exists (not wired yet - next priority)
+- ✅ **Workflow completion notifications** - Desktop notifications fire when runs complete
 - ✅ **Toast feedback for actions** - Added libadwaita Toast notifications for trigger/rerun/cancel
 - ✅ **Cache invalidation after actions** - Cache cleared when triggering/rerunning workflows
 - 🟡 "View logs" button in detail view job rows (logs window exists, just need to wire it)
@@ -217,7 +217,7 @@ All major features from the macOS app have been successfully implemented and tes
 - [✅] NotificationManager implementation (src/notifications.rs)
 - [✅] Desktop notification support via notify-rust
 - [✅] Conclusion text formatting (Success ✓, Failed ✗, etc.)
-- [ ] **Wire notifications to workflow completion detection**
+- [✅] **Wire notifications to workflow completion detection**
   - **Current status:** NotificationManager exists but not instantiated/used
   - **Action needed:** Detect when workflow transitions to completed state
   - **Action needed:** Call notify_workflow_completed() when workflows finish
@@ -401,6 +401,11 @@ All major features from the macOS app have been successfully implemented and tes
 15. **Welcome Screen Actions** ✅ - Hooked sign-in and quit controls
    - Sign in opens the new adaptive dialog and reuses the existing flow
    - Quit button now appears alongside sign-in and cleanly exits the app
+
+16. **Workflow Notifications** ✅ - Desktop alerts for completed runs
+   - Repo detail pane now wires NotificationManager into run refreshes
+   - Sends a toast when an in-flight run transitions to a completed conclusion
+   - Notifications include repo/workflow context and use critical urgency on failures
 
 ### Known Issues to Fix:
 - [✅] Background auto-refresh with ETag (runs now refresh for every workflow automatically)
@@ -900,19 +905,12 @@ All major features from the macOS app are now implemented in the GTK Linux clien
 
 **Status after macOS source comparison:**
 - Core feature parity: ✅ ACHIEVED
-- Missing: Workflow completion notifications (high value)
+- Completed: Workflow completion notifications (now live)
 - Missing: "View logs" button in detail view (medium value - logs window exists)
 
 ### High Priority Items
 
-1. **Workflow Completion Notifications** (Section 8.3) 🔴
-   - [ ] Wire NotificationManager to detect and notify on workflow completion
-   - **Status:** Code exists in src/notifications.rs but not used
-   - **macOS has this:** Yes - NotificationManager.swift sends notifications
-   - **Action:** Track workflow state changes in auto-refresh, call notify_workflow_completed()
-   - **Estimated effort:** 30-60 minutes
-
-2. **View Logs Button in Detail View** (Section 2.2) 🟡
+1. **View Logs Button in Detail View** (Section 2.2) 🟡
    - [ ] Add "View logs" button for each job in detail view
    - **Status:** job_logs_window.rs exists and works, just needs wiring
    - **macOS has this:** Yes - JobLogsView.swift
@@ -990,16 +988,15 @@ All major features from the macOS app are now implemented in the GTK Linux clien
 - Error handling & retry
 - Visual polish
 
-**🔴 HIGH PRIORITY TODO:**
-1. Wire up NotificationManager for workflow completion notifications (~30-60 min)
-2. Add "View logs" button to detail view job rows (~20-40 min)
+**� HIGH PRIORITY TODO:**
+1. Add "View logs" button to detail view job rows (~20-40 min)
 
 **⚪ LOW PRIORITY / OPTIONAL:**
 - Time auto-update (complex, low value)
 - Job branch display (API limitation)
 - Expansion state preservation (nice-to-have)
 
-**Next action:** Implement workflow completion notifications (biggest gap vs macOS)
+**Next action:** Add "View logs" button to detail view job rows (parity gap vs macOS)
 
 ## Session 4: Toast Feedback & Cache Invalidation (October 20, 2025)
 
@@ -1048,7 +1045,7 @@ All major features from the macOS app are now implemented in the GTK Linux clien
 - `src/ui/detail_view/helpers.rs`: Added toast feedback to all action buttons, cache invalidation
 
 ### Next Priority
-- Wire up NotificationManager for workflow completion notifications (desktop notifications when workflows finish)
+- Add "View logs" button for detail view job rows (reuse existing JobLogsWindow)
 
 ## Session 5: Jobs List Refresh Issues (IN PROGRESS - October 20, 2025)
 

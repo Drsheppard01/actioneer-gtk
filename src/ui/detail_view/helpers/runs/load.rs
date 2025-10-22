@@ -4,6 +4,7 @@ use super::row::create_run_expander_row;
 use crate::api::models::WorkflowRun;
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
+use crate::notifications::NotificationManager;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -11,7 +12,7 @@ use libadwaita as adw;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct RunDigest {
@@ -26,6 +27,7 @@ pub(crate) struct LoadRunsParams {
     pub owner: String,
     pub repo: String,
     pub workflow_id: i64,
+    pub workflow_name: String,
     pub runs_box: gtk::Box,
     pub parent_window: adw::ApplicationWindow,
     pub status_badge: Option<gtk::Label>,
@@ -38,6 +40,7 @@ pub(crate) struct LoadRunsParams {
     pub workflows_with_active: Arc<Mutex<HashSet<i64>>>,
     pub background: bool,
     pub run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+    pub notification_manager: Option<NotificationManager>,
 }
 
 pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
@@ -46,6 +49,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
         owner,
         repo,
         workflow_id,
+        workflow_name,
         runs_box,
         parent_window,
         status_badge,
@@ -58,6 +62,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
         workflows_with_active,
         background,
         run_digests,
+        notification_manager,
     } = params;
 
     let expanded_run_ids: HashSet<i64> = expanded_run_ids.into_iter().collect();
@@ -109,14 +114,16 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
             }
             Ok(runs) => {
                 let digest = digest_runs(&runs);
-                let existing_digest = {
+                let previous_digest = {
                     let mut digests = run_digests_for_ui.lock();
                     let previous = digests.get(&workflow_id).cloned();
                     digests.insert(workflow_id, digest.clone());
                     previous
                 };
 
-                let changed = existing_digest.map_or(true, |prev| prev != digest);
+                let changed = previous_digest
+                    .as_ref()
+                    .map_or(true, |prev| prev != &digest);
 
                 if changed {
                     prune_stale_job_contexts(&job_contexts, workflow_id, &runs);
@@ -128,6 +135,39 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                         &runs,
                     );
                 }
+                if changed {
+                    if let (Some(prev), Some(manager)) =
+                        (previous_digest.as_ref(), notification_manager.clone())
+                    {
+                        let notification_requests = collect_completed_notifications(prev, &runs);
+                        if !notification_requests.is_empty() {
+                            let manager = manager.clone();
+                            let workflow_label = workflow_name.clone();
+
+                            for (run_title, status, conclusion) in notification_requests {
+                                let manager = manager.clone();
+                                let workflow_label = workflow_label.clone();
+                                crate::runtime_handle().spawn(async move {
+                                    if let Err(err) = manager
+                                        .notify_workflow_completed(
+                                            &workflow_label,
+                                            &run_title,
+                                            &status,
+                                            conclusion.as_deref(),
+                                        )
+                                        .await
+                                    {
+                                        warn!(
+                                            "Failed to send workflow completion notification: {}",
+                                            err
+                                        );
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+
                 if let Some(ref badge) = status_badge {
                     if let Some(latest_run) = runs.first() {
                         update_workflow_status_badge(badge, latest_run);
@@ -191,6 +231,8 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                         &job_contexts_for_retry,
                         &workflows_with_active,
                         &run_digests_for_ui,
+                        workflow_name.clone(),
+                        notification_manager.clone(),
                     );
                 }
             }
@@ -329,6 +371,62 @@ fn digest_runs(runs: &[WorkflowRun]) -> Vec<RunDigest> {
         .collect()
 }
 
+fn collect_completed_notifications(
+    previous: &[RunDigest],
+    runs: &[WorkflowRun],
+) -> Vec<(String, String, Option<String>)> {
+    let mut previous_by_id = HashMap::new();
+    for digest in previous {
+        previous_by_id.insert(digest.id, digest);
+    }
+
+    runs.iter()
+        .filter(|run| is_completed_status(run.status.as_ref()))
+        .filter_map(|run| {
+            let prior = previous_by_id.get(&run.id)?;
+
+            let prev_completed = is_completed_status(prior.status.as_ref());
+            let conclusion_changed = prior.conclusion != run.conclusion;
+
+            if (!prev_completed || conclusion_changed) && run.conclusion.is_some() {
+                let title = build_run_notification_title(run);
+                let status = run
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| "completed".to_string());
+                let conclusion = run.conclusion.clone();
+                Some((title, status, conclusion))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn is_completed_status(status: Option<&String>) -> bool {
+    status
+        .map(|value| value.eq_ignore_ascii_case("completed"))
+        .unwrap_or(false)
+}
+
+fn build_run_notification_title(run: &WorkflowRun) -> String {
+    let base = run
+        .display_title
+        .clone()
+        .or(run.name.clone())
+        .unwrap_or_else(|| {
+            run.run_number
+                .map(|num| format!("Run #{}", num))
+                .unwrap_or_else(|| format!("Run {}", run.id))
+        });
+
+    if let Some(branch) = run.head_branch.as_ref().filter(|b| !b.is_empty()) {
+        format!("{} ({})", base, branch)
+    } else {
+        base
+    }
+}
+
 fn append_runs_header(runs_box: &gtk::Box, run_count: usize) {
     let count_label = gtk::Label::new(Some(&format!("Recent runs ({})", run_count)));
     count_label.add_css_class("dim-label");
@@ -352,6 +450,8 @@ fn append_error_state(
     job_contexts: &JobContextMap,
     workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
     run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+    workflow_name: String,
+    notification_manager: Option<NotificationManager>,
 ) {
     error!("Failed to load runs: {}", error);
 
@@ -387,6 +487,8 @@ fn append_error_state(
     let job_contexts_retry = job_contexts.clone();
     let workflows_with_active_retry = workflows_with_active.clone();
     let run_digests_retry = run_digests.clone();
+    let workflow_name_retry = workflow_name.clone();
+    let notification_manager_retry = notification_manager.clone();
 
     retry_button.connect_clicked(move |_| {
         clear_runs_box(&runs_box_retry);
@@ -395,6 +497,7 @@ fn append_error_state(
             owner: owner_retry.clone(),
             repo: repo_retry.clone(),
             workflow_id,
+            workflow_name: workflow_name_retry.clone(),
             runs_box: runs_box_retry.clone(),
             parent_window: parent_window_retry.clone(),
             status_badge: None,
@@ -407,6 +510,7 @@ fn append_error_state(
             workflows_with_active: workflows_with_active_retry.clone(),
             background: false,
             run_digests: run_digests_retry.clone(),
+            notification_manager: notification_manager_retry.clone(),
         });
     });
 

@@ -35,9 +35,7 @@ pub struct AuthWindow {
 
 impl AuthWindow {
     pub fn new() -> Self {
-        let dialog = adw::Dialog::builder()
-            .title("Sign in to GitHub")
-            .build();
+        let dialog = adw::Dialog::builder().title("Sign in to GitHub").build();
         dialog.set_content_width(460);
 
         let device_info = Arc::new(Mutex::new(None));

@@ -2,6 +2,7 @@ use crate::api::models::{Repo, Workflow};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
 use crate::favorites::FavoritesManager;
+use crate::notifications::NotificationManager;
 use crate::preferences::PreferencesManager;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
@@ -42,6 +43,7 @@ pub struct RepoDetailPane {
     workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>, // Track workflows needing refresh
     job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
     run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+    notification_manager: Option<NotificationManager>,
 }
 
 impl RepoDetailPane {
@@ -81,6 +83,7 @@ impl RepoDetailPane {
         let toast_overlay = adw::ToastOverlay::new();
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let run_digests = Arc::new(Mutex::new(HashMap::new()));
+        let notification_manager = Some(NotificationManager::new("Actioneer"));
 
         let pane = Self {
             parent: parent.clone(),
@@ -103,6 +106,7 @@ impl RepoDetailPane {
             workflows_with_active_runs: Arc::new(Mutex::new(HashSet::new())),
             job_contexts: job_contexts.clone(),
             run_digests: run_digests.clone(),
+            notification_manager: notification_manager.clone(),
         };
 
         pane.build_ui();
@@ -308,6 +312,7 @@ impl RepoDetailPane {
         let job_contexts = self.job_contexts.clone();
         let workflows_with_active_runs = self.workflows_with_active_runs.clone();
         let run_digests = self.run_digests.clone();
+        let notification_manager = self.notification_manager.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -328,6 +333,8 @@ impl RepoDetailPane {
 
             // Clear loading flag
             *loading_guard.lock() = false;
+
+            let notification_manager_for_ui = notification_manager.clone();
 
             match result {
                 Ok(wf_list) => {
@@ -354,6 +361,7 @@ impl RepoDetailPane {
                         &job_contexts,
                         &workflows_with_active_runs,
                         &run_digests,
+                        notification_manager_for_ui.clone(),
                     );
                 }
                 Err(e) => {
@@ -371,6 +379,7 @@ impl RepoDetailPane {
                         &job_contexts,
                         &workflows_with_active_runs,
                         &run_digests,
+                        notification_manager_for_ui.clone(),
                     );
                     let message = format!("Failed to load workflows: {}", e);
                     let toast_overlay = toast_overlay.clone();
@@ -426,6 +435,7 @@ impl RepoDetailPane {
         let job_contexts = self.job_contexts.clone();
         let workflows_with_active_runs = self.workflows_with_active_runs.clone();
         let run_digests = self.run_digests.clone();
+        let notification_manager = self.notification_manager.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -437,8 +447,11 @@ impl RepoDetailPane {
 
         receiver.attach(None, move |result| {
             let run_digests = run_digests.clone();
+            let notification_manager_handle = notification_manager.clone();
             // Clear loading flag
             *loading_guard.lock() = false;
+
+            let notification_manager_for_ui = notification_manager_handle.clone();
 
             match result {
                 Ok(wf_list) => {
@@ -459,6 +472,7 @@ impl RepoDetailPane {
                             &job_contexts,
                             &workflows_with_active_runs,
                             &run_digests,
+                            notification_manager_for_ui.clone(),
                         );
                     }
                 }
@@ -496,6 +510,7 @@ impl RepoDetailPane {
         let job_contexts = self.job_contexts.clone();
         let workflows_with_active_runs = self.workflows_with_active_runs.clone();
         let run_digests = self.run_digests.clone();
+        let notification_manager = self.notification_manager.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -520,6 +535,7 @@ impl RepoDetailPane {
             let toast_overlay = toast_overlay.clone();
             let workflows_with_active_runs = workflows_with_active_runs.clone();
             let run_digests = run_digests.clone();
+            let notification_manager_handle = notification_manager.clone();
 
             // Show loading spinner
             callback_refs.show_loading(true);
@@ -537,6 +553,7 @@ impl RepoDetailPane {
             let job_contexts_for_ui = job_contexts.clone();
             let workflows_with_active_runs_for_ui = workflows_with_active_runs.clone();
             let run_digests_for_ui = run_digests.clone();
+            let notification_manager_for_ui = notification_manager_handle.clone();
 
             receiver.attach(None, move |result| {
                 // Hide loading spinner
@@ -561,6 +578,7 @@ impl RepoDetailPane {
                             &job_contexts_for_ui,
                             &workflows_with_active_runs_for_ui,
                             &run_digests_for_ui,
+                            notification_manager_for_ui.clone(),
                         );
                     }
                     Err(e) => {
@@ -667,6 +685,7 @@ impl RepoDetailPane {
         let cache = self.cache.clone();
         let toast_overlay = self.toast_overlay.clone();
         let run_digests = self.run_digests.clone();
+        let notification_manager = self.notification_manager.clone();
 
         info!(
             "Starting auto-refresh timer with interval: {} seconds",
@@ -688,6 +707,7 @@ impl RepoDetailPane {
                 &workflows_with_active,
                 &job_contexts,
                 &run_digests,
+                &notification_manager,
             );
 
             glib::ControlFlow::Continue
@@ -708,6 +728,7 @@ impl RepoDetailPane {
         workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
         job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
         run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+        notification_manager: &Option<NotificationManager>,
     ) {
         let mut observed_active: HashSet<i64> = HashSet::new();
 
@@ -743,12 +764,30 @@ impl RepoDetailPane {
                                                     job_contexts,
                                                     workflow_id,
                                                 );
+                                                let workflow_label_stored = unsafe {
+                                                    expander
+                                                        .data::<String>("actioneer-workflow-name")
+                                                        .map(|name_ptr| name_ptr.as_ref().clone())
+                                                };
+                                                let workflow_label = workflow_label_stored
+                                                    .map(|name| {
+                                                        format!("{}/{} • {}", owner, repo, name)
+                                                    })
+                                                    .unwrap_or_else(|| {
+                                                        format!(
+                                                            "{}/{} • Workflow {}",
+                                                            owner, repo, workflow_id
+                                                        )
+                                                    });
+                                                let notification_manager_clone =
+                                                    notification_manager.clone();
 
                                                 load_workflow_runs(LoadRunsParams {
                                                     client: client.clone(),
                                                     owner: owner.to_string(),
                                                     repo: repo.to_string(),
                                                     workflow_id,
+                                                    workflow_name: workflow_label,
                                                     runs_box,
                                                     parent_window: parent_window.clone(),
                                                     status_badge,
@@ -762,6 +801,8 @@ impl RepoDetailPane {
                                                         .clone(),
                                                     background: true,
                                                     run_digests: run_digests.clone(),
+                                                    notification_manager:
+                                                        notification_manager_clone,
                                                 });
                                             }
                                         }
@@ -870,6 +911,7 @@ fn update_workflows_list(
     job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
     workflows_with_active_runs: &Arc<Mutex<HashSet<i64>>>,
     run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+    notification_manager: Option<NotificationManager>,
 ) {
     // First, collect which workflows are currently expanded
     let mut expanded_ids = HashSet::new();
@@ -965,6 +1007,7 @@ fn update_workflows_list(
             job_contexts.clone(),
             workflows_with_active_runs.clone(),
             run_digests.clone(),
+            notification_manager.clone(),
             preserved_run_ids,
         );
         list_box.append(&expander_row);
