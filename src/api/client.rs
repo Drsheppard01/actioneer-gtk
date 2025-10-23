@@ -1,6 +1,3 @@
-// Allow unused code for API methods that will be used by UI in the future
-#![allow(dead_code)]
-
 use super::error::GitHubError;
 use super::http::ResponseHandler;
 use super::{jobs, repos, runs, workflows};

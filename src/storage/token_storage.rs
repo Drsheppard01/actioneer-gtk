@@ -1,6 +1,3 @@
-// Allow dead code for now - these are stubs that will be implemented
-#![allow(dead_code)]
-
 use keyring::Entry;
 use thiserror::Error;
 use tracing::{debug, info, warn};

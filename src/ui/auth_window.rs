@@ -339,7 +339,14 @@ fn save_token_and_close(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let storage = TokenStorage::new()?;
     storage.save_token(&token.token)?;
-    info!("Token saved successfully");
+    if token.scope.is_empty() {
+        info!("Token saved successfully (type: {})", token.token_type);
+    } else {
+        info!(
+            "Token saved successfully (type: {}, scope: {})",
+            token.token_type, token.scope
+        );
+    }
 
     dialog.close();
 

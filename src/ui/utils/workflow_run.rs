@@ -3,10 +3,7 @@ use crate::api::models::WorkflowRun;
 
 /// Check if a workflow run is currently active
 pub fn is_run_active(run: &WorkflowRun) -> bool {
-    run.status
-        .as_ref()
-        .map(|s| matches!(s.as_str(), "queued" | "in_progress" | "pending" | "waiting"))
-        .unwrap_or(false)
+    run.is_active()
 }
 
 /// Check if a workflow run has failed

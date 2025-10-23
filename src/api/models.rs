@@ -1,6 +1,3 @@
-// Allow unused code for models that will be used when more UI is implemented
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

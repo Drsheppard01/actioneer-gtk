@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)] // Will be used when integrated with UI
 pub struct Preferences {
     /// Auto-refresh interval in seconds (0 = disabled)
     pub refresh_interval: u64,
@@ -36,14 +35,12 @@ impl Default for Preferences {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)] // Will be used when integrated with UI
 pub struct PreferencesManager {
     prefs: Arc<RwLock<Preferences>>,
     config_path: PathBuf,
     updates: watch::Sender<Preferences>,
 }
 
-#[allow(dead_code)] // Will be used when integrated with UI
 impl PreferencesManager {
     pub fn new() -> anyhow::Result<Self> {
         let config_dir = dirs::config_dir()

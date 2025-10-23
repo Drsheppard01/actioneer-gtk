@@ -5,7 +5,6 @@ Native GNOME application for managing GitHub Actions, built with Rust, GTK4, and
 ## Prerequisites
 
 - Rust (1.70+)
-- GTK4 (4.0+)
 - libadwaita (1.4+)
 - pkg-config
 
@@ -120,14 +119,12 @@ See [ZERO_WARNINGS_GUIDE.md](ZERO_WARNINGS_GUIDE.md) for maintaining code qualit
 - `src/favorites.rs` - Favorites/bookmarks management
 - `src/notifications.rs` - Desktop notification system
 - `src/ui/` - GTK4/libadwaita UI components
-  - `main_window.rs` - Main application window with repository list
+   - `main_window.rs` - Main application window with repository list
    - `sidebar.rs` - Repository list grouping helpers
    - `detail_view.rs` - Embedded repository workflows pane
    - `detail_placeholder.rs` - Placeholder messaging utilities
-  - `workflow_runs_window.rs` - Workflow runs view
-  - `run_jobs_window.rs` - Run jobs view with cancel functionality
-  - `job_logs_window.rs` - Job logs viewer
-  - `auth_window.rs` - OAuth device flow UI
+   - `job_logs_window.rs` - Job logs viewer
+   - `auth_window.rs` - OAuth device flow UI
 
 ## Features
 

@@ -7,8 +7,6 @@ pub mod auth_window;
 pub mod job_logs_window;
 pub mod main_window;
 pub mod preferences_window;
-pub mod run_jobs_window;
-pub mod workflow_runs_window;
 
 // New modules for better organization
 pub mod state;

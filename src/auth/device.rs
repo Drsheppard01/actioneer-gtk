@@ -1,6 +1,3 @@
-// Allow dead code for now - these are stubs that will be implemented
-#![allow(dead_code)]
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

@@ -21,9 +21,15 @@ pub fn update_rate_limit_label(label: &gtk::Label, info: Option<RateLimitInfo>) 
             format!("{}h", duration.num_hours())
         };
 
+        let prefix = if info.is_low() {
+            "Rate limit (low)"
+        } else {
+            "Rate limit"
+        };
+
         label.set_text(&format!(
-            "Rate limit: {}/{} (resets in {})",
-            info.remaining, info.limit, time_str
+            "{}: {}/{} (resets in {})",
+            prefix, info.remaining, info.limit, time_str
         ));
     } else {
         label.set_text("Rate limit: –");

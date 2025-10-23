@@ -21,13 +21,10 @@ use helpers::{
 };
 
 pub struct RepoDetailPane {
-    #[allow(dead_code)]
     parent: adw::ApplicationWindow,
     repo: Repo,
     client: Arc<Mutex<GitHubClient>>,
     workflows: Arc<Mutex<Vec<Workflow>>>,
-    #[allow(dead_code)]
-    expanded_workflows: Arc<Mutex<HashSet<i64>>>,
     favorites_manager: Option<Arc<FavoritesManager>>,
     preferences_manager: Option<Arc<PreferencesManager>>,
     cache: Arc<DataCache>,
@@ -59,7 +56,6 @@ impl RepoDetailPane {
     ) -> Self {
         info!("Creating RepoDetailPane for: {}", repo.full_name);
         let workflows = Arc::new(Mutex::new(Vec::new()));
-        let expanded_workflows = Arc::new(Mutex::new(HashSet::new()));
         let job_contexts = Arc::new(Mutex::new(HashMap::new()));
 
         let favorite_button = gtk::ToggleButton::new();
@@ -94,7 +90,6 @@ impl RepoDetailPane {
             repo: repo.clone(),
             client: client.clone(),
             workflows: workflows.clone(),
-            expanded_workflows: expanded_workflows.clone(),
             favorites_manager: favorites_manager.clone(),
             preferences_manager: preferences_manager.clone(),
             cache: cache.clone(),

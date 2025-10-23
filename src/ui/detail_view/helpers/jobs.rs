@@ -397,7 +397,7 @@ mod tests {
             html_url: Some("https://github.com/test".to_string()),
         };
 
-        let job_row = create_job_row_simple(&job);
+        let job_row = create_job_row_simple(&job, None);
 
         assert_eq!(job_row.orientation(), gtk::Orientation::Horizontal);
 

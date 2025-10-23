@@ -122,9 +122,4 @@ impl PreferencesWindow {
     pub fn present(&self) {
         self.window.present();
     }
-
-    #[allow(dead_code)]
-    pub fn manager(&self) -> Arc<PreferencesManager> {
-        self.manager.clone()
-    }
 }

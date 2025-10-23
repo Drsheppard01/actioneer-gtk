@@ -7,7 +7,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Observe favorites manager and update local state
-#[allow(dead_code)] // Will be used when fully integrated
 pub fn observe_favorites<F>(
     manager: Arc<FavoritesManager>,
     favorites_state: Arc<Mutex<HashSet<i64>>>,

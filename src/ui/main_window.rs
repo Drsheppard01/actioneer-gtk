@@ -1,6 +1,8 @@
 use super::detail_placeholder::schedule_status_page_update;
 use super::detail_view::RepoDetailPane;
-use super::sidebar::{find_label_by_name, rebuild_repo_list, row_matches_query};
+use super::sidebar::{
+    find_label_by_name, rebuild_repo_list, row_matches_query, RepoListRenderContext,
+};
 use super::WelcomeScreen;
 use crate::api::models::{RateLimitInfo, Repo};
 use crate::api::{GitHubClient, GitHubError};
@@ -23,11 +25,13 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 // Import refactored modules
 use crate::ui::state::{RepoActionsState, WorkflowStatusCounts};
+
+const REPO_STATUS_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Clone)]
 pub struct MainWindow {
@@ -511,6 +515,13 @@ impl MainWindow {
         }
 
         {
+            let cache = self.cache.clone();
+            crate::runtime_handle().spawn(async move {
+                cache.clear_all().await;
+            });
+        }
+
+        {
             let mut repos_guard = self.repos.lock();
             repos_guard.clear();
         }
@@ -678,8 +689,60 @@ impl MainWindow {
             *info_guard = rate_info.clone();
         }
 
+        self.refresh_repo_status_summaries(&repos);
+
         self.schedule_repo_list_refresh();
         self.update_rate_limit_display(rate_info);
+    }
+
+    fn refresh_repo_status_summaries(&self, repos: &[Repo]) {
+        let client_opt = {
+            let guard = self.client.lock();
+            guard.clone()
+        };
+
+        let client = match client_opt {
+            Some(client) => client,
+            None => return,
+        };
+
+        let now = Instant::now();
+        let mut checked_map = self.actions_checked_at.lock();
+        let mut due_repos = Vec::new();
+
+        for repo in repos {
+            let last_checked = checked_map.get(&repo.id).copied();
+            let recently_checked = last_checked
+                .map(|timestamp| now.duration_since(timestamp) < REPO_STATUS_TTL)
+                .unwrap_or(false);
+
+            if recently_checked {
+                continue;
+            }
+
+            checked_map.insert(repo.id, now);
+            due_repos.push(repo.clone());
+        }
+
+        drop(checked_map);
+
+        if due_repos.is_empty() {
+            return;
+        }
+
+        let actions_state = self.actions_states.clone();
+        let workflow_state = self.workflow_counts.clone();
+        let checked_state = self.actions_checked_at.clone();
+        let this = self.clone();
+
+        crate::ui::tasks::repo_status::spawn_repo_status_tasks(
+            due_repos,
+            client,
+            actions_state,
+            workflow_state,
+            checked_state,
+            move || this.schedule_repo_list_refresh(),
+        );
     }
 
     fn update_rate_limit_display(&self, info: Option<RateLimitInfo>) {
@@ -699,55 +762,30 @@ impl MainWindow {
 
         // Schedule UI update on glib main thread
         glib::idle_add_local_once(move || {
-            rebuild_repo_list(
-                list_box,
-                repos_snapshot,
+            let context = RepoListRenderContext {
+                repos: repos_snapshot,
                 favorites_snapshot,
                 actions_snapshot,
                 workflow_snapshot,
-                favorites_arc,
+                favorites_state: favorites_arc,
                 favorites_manager,
-                selected,
-            );
+                selected_repo_id: selected,
+            };
+
+            rebuild_repo_list(list_box, context);
         });
     }
 
     fn observe_favorites(&self) {
         if let Some(manager) = &self.favorites_manager {
-            let receiver = manager.subscribe();
             let favorites_state = self.favorites.clone();
             let this = self.clone();
 
-            let (sender, receiver_channel) =
-                glib::MainContext::default().channel::<HashSet<i64>>(glib::Priority::default());
-
-            receiver_channel.attach(None, move |latest| {
-                {
-                    let mut favorites = favorites_state.lock();
-                    *favorites = latest;
-                }
-                this.schedule_repo_list_refresh();
-
-                glib::ControlFlow::Continue
-            });
-
-            crate::runtime_handle().spawn(async move {
-                let mut receiver_local = receiver;
-
-                if sender.send(receiver_local.borrow().clone()).is_err() {
-                    return;
-                }
-
-                loop {
-                    if receiver_local.changed().await.is_err() {
-                        break;
-                    }
-
-                    if sender.send(receiver_local.borrow().clone()).is_err() {
-                        break;
-                    }
-                }
-            });
+            crate::ui::tasks::favorites_observer::observe_favorites(
+                manager.clone(),
+                favorites_state,
+                move || this.schedule_repo_list_refresh(),
+            );
         }
     }
 

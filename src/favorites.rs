@@ -6,20 +6,17 @@ use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[allow(dead_code)] // Will be used when integrated with UI
 struct FavoritesData {
     repo_ids: HashSet<i64>,
 }
 
 #[derive(Clone)]
-#[allow(dead_code)] // Will be used when integrated with UI
 pub struct FavoritesManager {
     data: Arc<RwLock<FavoritesData>>,
     config_path: PathBuf,
     updates: watch::Sender<HashSet<i64>>,
 }
 
-#[allow(dead_code)] // Will be used when integrated with UI
 impl FavoritesManager {
     pub fn new() -> anyhow::Result<Self> {
         let config_dir = dirs::config_dir()

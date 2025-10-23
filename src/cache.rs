@@ -4,14 +4,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Will be used when integrated with UI
 struct WorkflowCache {
     runs: Vec<WorkflowRun>,
     jobs: HashMap<i64, Vec<Job>>, // run_id -> jobs
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Will be used when integrated with UI
 struct RepoCacheEntry {
     workflows: Vec<Workflow>,
     workflow_data: HashMap<i64, WorkflowCache>, // workflow_id -> cache
@@ -20,12 +18,10 @@ struct RepoCacheEntry {
 /// In-memory data cache to reduce API calls
 /// Similar to DataCache.swift in macOS version
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Will be used when integrated with UI
 pub struct DataCache {
     repositories: Arc<RwLock<HashMap<String, RepoCacheEntry>>>,
 }
 
-#[allow(dead_code)] // Will be used when integrated with UI
 impl DataCache {
     pub fn new() -> Self {
         Self {

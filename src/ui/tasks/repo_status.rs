@@ -8,22 +8,28 @@ use gtk4::glib;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::warn;
 
 const MAX_REPOS_FOR_STATUS: usize = 20;
 
 /// Spawn tasks to check repository status for all repos
 /// Runs checks in parallel (5 concurrent) on tokio runtime
-#[allow(dead_code)] // Will be used when fully integrated
 pub fn spawn_repo_status_tasks<F>(
     repos: Vec<Repo>,
     client: GitHubClient,
     actions_state: Arc<Mutex<HashMap<i64, RepoActionsState>>>,
     workflow_state: Arc<Mutex<HashMap<i64, WorkflowStatusCounts>>>,
+    checked_state: Arc<Mutex<HashMap<i64, Instant>>>,
     on_complete: F,
 ) where
-    F: FnOnce() + Send + 'static,
+    F: FnOnce() + 'static,
 {
+    if repos.is_empty() {
+        glib::idle_add_local_once(on_complete);
+        return;
+    }
+
     let (sender, receiver) = glib::MainContext::default().channel::<()>(glib::Priority::default());
     let mut callback = Some(on_complete);
 
@@ -44,6 +50,7 @@ pub fn spawn_repo_status_tasks<F>(
                 let client = client.clone();
                 let actions_state = actions_state.clone();
                 let workflow_state = workflow_state.clone();
+                let checked_state = checked_state.clone();
 
                 async move {
                     let owner = repo.owner.login.clone();
@@ -84,6 +91,9 @@ pub fn spawn_repo_status_tasks<F>(
                             );
                         }
                     }
+
+                    let mut checked = checked_state.lock();
+                    checked.insert(repo_id, Instant::now());
                 }
             })
             .await;

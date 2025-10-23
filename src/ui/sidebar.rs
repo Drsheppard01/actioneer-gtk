@@ -11,17 +11,28 @@ use tracing::warn;
 
 const MAX_WORKFLOWS_PER_REPO: usize = 3;
 
-#[allow(clippy::too_many_arguments)]
-pub fn rebuild_repo_list(
-    list_box: gtk::ListBox,
-    repos: Vec<Repo>,
-    favorites_snapshot: HashSet<i64>,
-    actions_snapshot: HashMap<i64, RepoActionsState>,
-    workflow_snapshot: HashMap<i64, WorkflowStatusCounts>,
-    favorites_arc: Arc<Mutex<HashSet<i64>>>,
-    favorites_manager: Option<Arc<FavoritesManager>>,
-    selected_repo_id: Option<i64>,
-) {
+#[derive(Clone)]
+pub struct RepoListRenderContext {
+    pub repos: Vec<Repo>,
+    pub favorites_snapshot: HashSet<i64>,
+    pub actions_snapshot: HashMap<i64, RepoActionsState>,
+    pub workflow_snapshot: HashMap<i64, WorkflowStatusCounts>,
+    pub favorites_state: Arc<Mutex<HashSet<i64>>>,
+    pub favorites_manager: Option<Arc<FavoritesManager>>,
+    pub selected_repo_id: Option<i64>,
+}
+
+pub fn rebuild_repo_list(list_box: gtk::ListBox, context: RepoListRenderContext) {
+    let RepoListRenderContext {
+        repos,
+        favorites_snapshot,
+        actions_snapshot,
+        workflow_snapshot,
+        favorites_state,
+        favorites_manager,
+        selected_repo_id,
+    } = context;
+
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
@@ -54,6 +65,11 @@ pub fn rebuild_repo_list(
 
     let mut selected_row: Option<gtk::ListBoxRow> = None;
 
+    let favorites_state_for_rows = favorites_state.clone();
+    let favorites_manager_for_rows = favorites_manager.clone();
+    let actions_snapshot_for_rows = actions_snapshot.clone();
+    let workflow_snapshot_for_rows = workflow_snapshot.clone();
+
     let mut append_section =
         |title: &str, icon_name: &str, repos: Vec<Repo>, favorites_snapshot: &HashSet<i64>| {
             if repos.is_empty() {
@@ -71,20 +87,22 @@ pub fn rebuild_repo_list(
 
                 for repo in repos {
                     let repo_id = repo.id;
-                    let actions_state = actions_snapshot
+                    let actions_state = actions_snapshot_for_rows
                         .get(&repo_id)
                         .copied()
                         .unwrap_or(RepoActionsState::Unknown);
-                    let workflow_counts =
-                        workflow_snapshot.get(&repo_id).cloned().unwrap_or_default();
+                    let workflow_counts = workflow_snapshot_for_rows
+                        .get(&repo_id)
+                        .cloned()
+                        .unwrap_or_default();
 
                     let row = build_repo_row(
                         repo.clone(),
                         favorites_snapshot.contains(&repo_id),
                         actions_state,
                         workflow_counts,
-                        favorites_arc.clone(),
-                        favorites_manager.clone(),
+                        favorites_state_for_rows.clone(),
+                        favorites_manager_for_rows.clone(),
                     );
 
                     if let Some(full_name) = &selected_full_name {

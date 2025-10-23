@@ -42,7 +42,6 @@ impl Config {
     }
 
     /// Get GitHub client secret if available
-    #[allow(dead_code)] // Will be used when implementing OAuth web flow
     pub fn github_client_secret() -> Option<&'static str> {
         Self::get().github_client_secret.as_deref()
     }
@@ -56,5 +55,7 @@ mod tests {
     fn test_config_has_client_id() {
         let config = Config::get();
         assert!(!config.github_client_id.is_empty());
+        // Touch optional secret accessor so it remains in active use even when unset.
+        let _ = Config::github_client_secret();
     }
 }

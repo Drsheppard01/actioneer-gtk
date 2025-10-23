@@ -38,11 +38,14 @@ All macOS features are now implemented in the GTK client, including the final wo
 - [✅] Show a friendly message when job logs are not yet available (GitHub 404)
 - [✅] Keep the “Showing X job(s)” label visible after auto-refresh updates
 - [ ] Re-audit recent changes for regressions and add tests where needed
+- [🔄] Remove clippy suppressions and fix underlying warnings so linting is clean
 
 
 ## 1. Workflow Run Display Features
 ## Recent Updates (Current Session - Continued)
 
+- **Sign-out cache reset** [✅] — Clear the shared `DataCache` during sign-out so repo and workflow panes always start fresh for the next session.
+- **Clippy cleanup prep** [🔄] — Began auditing suppressed lints and planning fixes so we can re-enable strict clippy checks without failures.
 - **Job logs UX** [✅] — Added a persistent text view for the logs window with clear messaging when GitHub has not published logs yet (404) and improved error handling on refresh.
 - **Job list summary** [✅] — Ensured the “Showing X job(s)” label is re-appended on background refreshes so the count stays visible after auto updates.
 - **Job logs actions** [✅] — Added copy-to-clipboard and save-to-file controls with toast feedback for success and failure states.
