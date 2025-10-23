@@ -2,9 +2,9 @@
 
 **Goal:** Bring Linux GTK app to feature parity with macOS app based on UI reference and source code analysis.
 
-**Status:** ✅ **FEATURE PARITY ACHIEVED** (October 2025)
+**Status:** 🔄 **In progress** (parity gaps outstanding)
 
-All major features from the macOS app have been successfully implemented and tested in the Linux GTK client. The app is ready for production use.
+Most macOS features are implemented and shippable, but a few workflow detail polish items remain (see "What's NOT done").
 
 ## Legend
 - [ ] Not started
@@ -30,11 +30,8 @@ All major features from the macOS app have been successfully implemented and tes
 - Visual polish and UI improvements ✅
 
 **What's NOT done (from macOS comparison):**
-- ✅ **Workflow completion notifications** - Desktop notifications fire when runs complete
-- ✅ **Toast feedback for actions** - Added libadwaita Toast notifications for trigger/rerun/cancel
-- ✅ **Cache invalidation after actions** - Cache cleared when triggering/rerunning workflows
-- 🟡 "View logs" button in detail view job rows (logs window exists, just need to wire it)
-- ⚪ Minor polish items (time auto-update, expansion state preservation, etc.)
+- 🔸 Relative time auto-update for run subtitles (labels only refresh on reload)
+- 🔸 Job-specific branch metadata (macOS shows it; GitHub API parity under investigation)
 
 ---
 
@@ -87,9 +84,8 @@ All major features from the macOS app have been successfully implemented and tes
 - [✅] Show job status text (e.g., "In Progress", "Success", "Failed")
 
 ### 2.2 Job Action Buttons
-- [ ] Add "View logs" button for each job (opens logs dialog/window)
-  - Note: Job logs window already exists (job_logs_window.rs), but not wired to job rows in detail view
-  - Jobs can be clicked in run_jobs_window.rs to view logs
+- [✅] Add "View logs" button for each job (opens logs dialog/window)
+   - Detail view job rows now reuse the logs window implementation from `job_logs_window.rs` and match the run jobs window behaviour
 - [✅] Add "Open job in GitHub" button
 
 ### 2.3 Job Grouping
@@ -277,15 +273,15 @@ All major features from the macOS app have been successfully implemented and tes
 - Expansion state preservation ✅
 - Automated tests ✅
 
-**Phase 2 - Additional Features:** 🚧 IN PROGRESS (5/8)
+**Phase 2 - Additional Features:** 🚧 IN PROGRESS (6/8)
 - Auto-refresh workflow functionality ✅
 - Confirmation dialogs ✅
 - Job summary badges ✅ (NEW - showing counts with icons)
 - Workflow status badge ✅ (NEW - showing passing/failing next to workflow name)
-- Job logs viewer ✅ (exists but not fully wired to detail view)
+- Job logs viewer ✅ (window complete; detail view wiring tracked separately)
 - Time string auto-update (pending - needs periodic timer implementation)
-- Trigger workflow button (pending)
-- Auto-refresh for active runs (pending - complex feature)
+- Trigger workflow button ✅ (branch selector + dispatch dialog in place)
+- Auto-refresh for active runs ✅ (timer and job context refresh live)
 
 **Phase 3 - Polish:** ⏳ NOT STARTED
 - Enhanced job logs viewer with streaming
@@ -295,7 +291,13 @@ All major features from the macOS app have been successfully implemented and tes
 
 ## Recent Updates (Current Session - Continued)
 
+- **Detail view audit** [✅] — Reviewed run/job helper modules, confirmed cache + notification wiring, and mapped the repo + parent window data paths needed for the new job log action.
+
+- **Job log button wiring** [✅] — Added `JobRowContext` to carry repo + window handles, passed repo models through workflow/run loaders, and connected each job row's "View logs" button to open `JobLogsWindow` with retry support.
+
 - **GNOME notifications migration** [✅] — Reworked the Linux notification backend to use `gio::Notification`, added a toolbar test button for manual checks, and confirmed delivery through GNOME Shell.
+
+- **GNOME notification threading fix** ✅ — Wrapped notification dispatch in `MainContext::invoke` so test button clicks never panic when spawned from Tokio workers.
 
 - **Desktop icon defaults** ✅ — Register the `actioneer` icon name during `Application::startup` so GNOME uses the bundled hicolor icon without extra configuration. Documented install steps already cover copying the icon assets.
 

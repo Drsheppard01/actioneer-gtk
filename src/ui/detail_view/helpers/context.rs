@@ -1,3 +1,4 @@
+use crate::api::models::Repo;
 use crate::api::GitHubClient;
 use crate::cache::DataCache;
 use gtk4::{self as gtk};
@@ -16,6 +17,8 @@ pub(crate) struct JobRefreshContext {
     cache: Arc<DataCache>,
     jobs_box: gtk::Box,
     badges_box: Option<gtk::Box>,
+    parent_window: gtk::Window,
+    repo_model: Repo,
 }
 
 impl JobRefreshContext {
@@ -28,6 +31,8 @@ impl JobRefreshContext {
         cache: Arc<DataCache>,
         jobs_box: gtk::Box,
         badges_box: Option<gtk::Box>,
+        parent_window: gtk::Window,
+        repo_model: Repo,
     ) -> Self {
         Self {
             client,
@@ -38,6 +43,8 @@ impl JobRefreshContext {
             cache,
             jobs_box,
             badges_box,
+            parent_window,
+            repo_model,
         }
     }
 
@@ -71,6 +78,14 @@ impl JobRefreshContext {
 
     pub(crate) fn badges_box(&self) -> Option<gtk::Box> {
         self.badges_box.clone()
+    }
+
+    pub(crate) fn parent_window(&self) -> gtk::Window {
+        self.parent_window.clone()
+    }
+
+    pub(crate) fn repo_model(&self) -> Repo {
+        self.repo_model.clone()
     }
 }
 
@@ -125,6 +140,17 @@ mod tests {
         let client = Arc::new(Mutex::new(GitHubClient::new(None).unwrap()));
         let cache = Arc::new(DataCache::new());
         let jobs_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let parent_window = gtk::Window::builder().build();
+        let repo_model = Repo {
+            id: 1,
+            name: "repo".to_string(),
+            full_name: "owner/repo".to_string(),
+            owner: User {
+                login: "owner".to_string(),
+            },
+            is_private: false,
+            permissions: None,
+        };
 
         let context_one = JobRefreshContext::new(
             client.clone(),
@@ -135,6 +161,8 @@ mod tests {
             cache.clone(),
             jobs_box.clone(),
             None,
+            parent_window.clone(),
+            repo_model.clone(),
         );
         let context_two = JobRefreshContext::new(
             client.clone(),
@@ -145,6 +173,8 @@ mod tests {
             cache.clone(),
             jobs_box.clone(),
             None,
+            parent_window.clone(),
+            repo_model.clone(),
         );
         let context_other = JobRefreshContext::new(
             client.clone(),
@@ -155,6 +185,8 @@ mod tests {
             cache.clone(),
             jobs_box.clone(),
             None,
+            parent_window.clone(),
+            repo_model.clone(),
         );
 
         let job_contexts: JobContextMap = Arc::new(Mutex::new(HashMap::new()));

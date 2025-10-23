@@ -2,9 +2,10 @@ use super::context::{JobContextMap, JobRefreshContext};
 use super::formatting::{
     format_job_status, get_job_status_class, get_job_status_icon, update_job_summary_badges,
 };
-use crate::api::models::Job;
+use crate::api::models::{Job, Repo};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
+use crate::ui::job_logs_window::JobLogsWindow;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -22,12 +23,21 @@ pub(super) struct LoadJobsParams {
     pub(super) badges_box: Option<gtk::Box>,
     pub(super) cache: Arc<DataCache>,
     pub(super) workflow_id: i64,
+    pub(super) parent_window: gtk::Window,
+    pub(super) repo_model: Repo,
     pub(super) background: bool,
     pub(super) bypass_cache: bool,
     pub(super) job_contexts: JobContextMap,
 }
 
-pub(super) fn create_job_row_simple(job: &Job) -> gtk::Box {
+#[derive(Clone)]
+pub(super) struct JobRowContext {
+    pub(super) client: Arc<Mutex<GitHubClient>>,
+    pub(super) parent_window: gtk::Window,
+    pub(super) repo: Repo,
+}
+
+pub(super) fn create_job_row_simple(job: &Job, context: Option<JobRowContext>) -> gtk::Box {
     let job_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     job_box.set_margin_top(4);
     job_box.set_margin_bottom(4);
@@ -69,6 +79,30 @@ pub(super) fn create_job_row_simple(job: &Job) -> gtk::Box {
         right_box.append(&duration_label);
     }
 
+    if let Some(ctx) = context {
+        let logs_button = gtk::Button::from_icon_name("text-x-generic-symbolic");
+        logs_button.set_tooltip_text(Some("View logs"));
+        logs_button.add_css_class("flat");
+        logs_button.add_css_class("circular");
+        logs_button.set_valign(gtk::Align::Center);
+
+        let parent_window = ctx.parent_window.clone();
+        let repo_model = ctx.repo.clone();
+        let client = ctx.client.clone();
+        let job_for_logs = job.clone();
+        logs_button.connect_clicked(move |_| {
+            let logs_window = JobLogsWindow::new(
+                &parent_window,
+                repo_model.clone(),
+                job_for_logs.clone(),
+                client.clone(),
+            );
+            logs_window.present();
+        });
+
+        right_box.append(&logs_button);
+    }
+
     if let Some(ref url) = job.html_url {
         let open_btn = gtk::Button::from_icon_name("adw-external-link-symbolic");
         open_btn.set_tooltip_text(Some("Open job in GitHub"));
@@ -101,6 +135,8 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
         badges_box,
         cache,
         workflow_id,
+        parent_window,
+        repo_model,
         background,
         bypass_cache,
         job_contexts,
@@ -172,6 +208,8 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     cache.clone(),
                     jobs_box.clone(),
                     badges_box.clone(),
+                    parent_window.clone(),
+                    repo_model.clone(),
                 );
                 {
                     let mut contexts = job_contexts.lock();
@@ -179,8 +217,13 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                 }
 
                 let total_jobs = jobs.len();
+                let row_context = JobRowContext {
+                    client: client.clone(),
+                    parent_window: parent_window.clone(),
+                    repo: repo_model.clone(),
+                };
                 for job in jobs.iter() {
-                    let job_row = create_job_row_simple(job);
+                    let job_row = create_job_row_simple(job, Some(row_context.clone()));
                     jobs_box.append(&job_row);
                 }
 
@@ -231,6 +274,8 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     let job_contexts_retry = job_contexts.clone();
 
                     let badges_box_retry = badges_box.clone();
+                    let parent_window_retry = parent_window.clone();
+                    let repo_model_retry = repo_model.clone();
 
                     retry_button.connect_clicked(move |_| {
                         while let Some(child) = jobs_box_retry.first_child() {
@@ -245,6 +290,8 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                             badges_box: badges_box_retry.clone(),
                             cache: cache_retry.clone(),
                             workflow_id,
+                            parent_window: parent_window_retry.clone(),
+                            repo_model: repo_model_retry.clone(),
                             background: false,
                             bypass_cache: true,
                             job_contexts: job_contexts_retry.clone(),
@@ -304,6 +351,8 @@ pub(crate) fn refresh_jobs_for_workflows(
             badges_box: context.badges_box(),
             cache: context.cache(),
             workflow_id: context.workflow_id(),
+            parent_window: context.parent_window(),
+            repo_model: context.repo_model(),
             background: true,
             bypass_cache: true,
             job_contexts: job_contexts.clone(),

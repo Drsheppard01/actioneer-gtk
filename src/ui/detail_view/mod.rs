@@ -316,6 +316,7 @@ impl RepoDetailPane {
         let run_digests = self.run_digests.clone();
         let notification_manager = self.notification_manager.clone();
         let preferences_manager = self.preferences_manager.clone();
+        let repo_model = self.repo.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -359,6 +360,7 @@ impl RepoDetailPane {
                         &client,
                         &owner,
                         &repo_name,
+                        repo_model.clone(),
                         &parent_window,
                         &cache,
                         &toast_overlay,
@@ -378,6 +380,7 @@ impl RepoDetailPane {
                         &client,
                         &owner,
                         &repo_name,
+                        repo_model.clone(),
                         &parent_window,
                         &cache,
                         &toast_overlay,
@@ -443,6 +446,7 @@ impl RepoDetailPane {
         let run_digests = self.run_digests.clone();
         let notification_manager = self.notification_manager.clone();
         let preferences_manager = self.preferences_manager.clone();
+        let repo_model = self.repo.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -456,6 +460,7 @@ impl RepoDetailPane {
             let run_digests = run_digests.clone();
             let notification_manager_handle = notification_manager.clone();
             let preferences_manager_handle = preferences_manager.clone();
+            let repo_model_for_ui = repo_model.clone();
             // Clear loading flag
             *loading_guard.lock() = false;
 
@@ -475,6 +480,7 @@ impl RepoDetailPane {
                             &client,
                             &owner,
                             &repo_name,
+                            repo_model_for_ui.clone(),
                             &parent_window,
                             &cache,
                             &toast_overlay,
@@ -522,6 +528,7 @@ impl RepoDetailPane {
         let run_digests = self.run_digests.clone();
         let notification_manager = self.notification_manager.clone();
         let preferences_manager = self.preferences_manager.clone();
+        let repo_model = self.repo.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -538,6 +545,7 @@ impl RepoDetailPane {
             let workflows = workflows.clone();
             let owner = owner.clone();
             let repo_name = repo_name.clone();
+            let repo_model = repo_model.clone();
             let list_box = list_box.clone();
             let callback_refs = callback_refs.clone();
             let parent_window = parent_window.clone();
@@ -559,6 +567,7 @@ impl RepoDetailPane {
             let client_for_ui = client.clone();
             let owner_for_ui = owner.clone();
             let repo_name_for_ui = repo_name.clone();
+            let repo_model_for_ui = repo_model.clone();
             let callback_refs_for_ui = callback_refs.clone();
             let parent_window_for_ui = parent_window.clone();
             let toast_overlay_for_ui = toast_overlay.clone();
@@ -585,6 +594,7 @@ impl RepoDetailPane {
                             &client_for_ui,
                             &owner_for_ui,
                             &repo_name_for_ui,
+                            repo_model_for_ui.clone(),
                             &parent_window_for_ui,
                             &cache,
                             &toast_overlay_for_ui,
@@ -691,6 +701,7 @@ impl RepoDetailPane {
         let client = self.client.clone();
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
+        let repo_model = self.repo.clone();
         let parent_window = self.parent.clone();
         let list_box = self.list_box.clone();
         let workflows_with_active = self.workflows_with_active_runs.clone();
@@ -716,6 +727,7 @@ impl RepoDetailPane {
                 &client,
                 &owner,
                 &repo_name,
+                repo_model.clone(),
                 &parent_window,
                 &cache,
                 &toast_overlay,
@@ -738,6 +750,7 @@ impl RepoDetailPane {
         client: &Arc<Mutex<GitHubClient>>,
         owner: &str,
         repo: &str,
+        repo_model: Repo,
         parent_window: &adw::ApplicationWindow,
         cache: &Arc<DataCache>,
         toast_overlay: &adw::ToastOverlay,
@@ -800,11 +813,13 @@ impl RepoDetailPane {
                                                     notification_manager.clone();
                                                 let preferences_manager_clone =
                                                     preferences_manager.clone();
+                                                let repo_model_clone = repo_model.clone();
 
                                                 load_workflow_runs(LoadRunsParams {
                                                     client: client.clone(),
                                                     owner: owner.to_string(),
                                                     repo: repo.to_string(),
+                                                    repo_model: repo_model_clone,
                                                     workflow_id,
                                                     workflow_name: workflow_label,
                                                     runs_box,
@@ -925,6 +940,7 @@ fn update_workflows_list(
     client: &Arc<Mutex<GitHubClient>>,
     owner: &str,
     repo: &str,
+    repo_model: Repo,
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
     toast_overlay: &adw::ToastOverlay,
@@ -1021,6 +1037,7 @@ fn update_workflows_list(
             client,
             owner,
             repo,
+            repo_model.clone(),
             should_expand,
             parent_window,
             cache,

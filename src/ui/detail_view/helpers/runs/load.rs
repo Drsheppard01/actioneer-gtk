@@ -1,7 +1,7 @@
 use super::super::context::JobContextMap;
 use super::super::formatting::update_workflow_status_badge;
 use super::row::create_run_expander_row;
-use crate::api::models::WorkflowRun;
+use crate::api::models::{Repo, WorkflowRun};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
 use crate::notifications::NotificationManager;
@@ -27,6 +27,7 @@ pub(crate) struct LoadRunsParams {
     pub client: Arc<Mutex<GitHubClient>>,
     pub owner: String,
     pub repo: String,
+    pub repo_model: Repo,
     pub workflow_id: i64,
     pub workflow_name: String,
     pub runs_box: gtk::Box,
@@ -50,6 +51,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
         client,
         owner,
         repo,
+        repo_model,
         workflow_id,
         workflow_name,
         runs_box,
@@ -227,6 +229,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                             &client,
                             &owner,
                             &repo,
+                            &repo_model,
                             &parent_window_clone,
                             &cache,
                             workflow_id,
@@ -262,6 +265,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                         workflow_name.clone(),
                         notification_manager.clone(),
                         preferences_manager.clone(),
+                        repo_model.clone(),
                     );
                 }
             }
@@ -482,6 +486,7 @@ fn append_error_state(
     workflow_name: String,
     notification_manager: Option<NotificationManager>,
     preferences_manager: Option<Arc<PreferencesManager>>,
+    repo_model: Repo,
 ) {
     error!("Failed to load runs: {}", error);
 
@@ -520,6 +525,7 @@ fn append_error_state(
     let workflow_name_retry = workflow_name.clone();
     let notification_manager_retry = notification_manager.clone();
     let preferences_manager_retry = preferences_manager.clone();
+    let repo_model_retry = repo_model.clone();
 
     retry_button.connect_clicked(move |_| {
         clear_runs_box(&runs_box_retry);
@@ -527,6 +533,7 @@ fn append_error_state(
             client: client_retry.clone(),
             owner: owner_retry.clone(),
             repo: repo_retry.clone(),
+            repo_model: repo_model_retry.clone(),
             workflow_id,
             workflow_name: workflow_name_retry.clone(),
             runs_box: runs_box_retry.clone(),

@@ -1,6 +1,6 @@
 use super::context::{take_job_context_run_ids, JobContextMap};
 use super::runs::{load_workflow_runs, LoadRunsParams, RunDigest};
-use crate::api::models::Workflow;
+use crate::api::models::{Repo, Workflow};
 use crate::api::GitHubClient;
 use crate::cache::DataCache;
 use crate::notifications::NotificationManager;
@@ -21,6 +21,7 @@ pub(crate) fn create_workflow_expander_row(
     client: &Arc<Mutex<GitHubClient>>,
     owner: &str,
     repo: &str,
+    repo_model: Repo,
     should_expand: bool,
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
@@ -117,6 +118,9 @@ pub(crate) fn create_workflow_expander_row(
     let status_badge_shared = status_badge.clone();
     let cache_shared = cache.clone();
     let toast_overlay_shared = toast_overlay.clone();
+    let repo_model_shared = repo_model.clone();
+    let repo_model_for_signal = repo_model.clone();
+    let repo_model_for_trigger = repo_model.clone();
 
     let owner_for_signal = owner_string.clone();
     let repo_for_signal = repo_string.clone();
@@ -177,6 +181,7 @@ pub(crate) fn create_workflow_expander_row(
                 client: client_for_signal.clone(),
                 owner: owner_for_signal.clone(),
                 repo: repo_for_signal.clone(),
+                repo_model: repo_model_for_signal.clone(),
                 workflow_id,
                 workflow_name: workflow_display_for_signal.clone(),
                 runs_box: runs_box_for_signal.clone(),
@@ -218,6 +223,7 @@ pub(crate) fn create_workflow_expander_row(
                     client: client_shared.clone(),
                     owner: owner_string.clone(),
                     repo: repo_string.clone(),
+                    repo_model: repo_model_shared.clone(),
                     workflow_id,
                     workflow_name: workflow_display_shared.clone(),
                     runs_box: runs_box_shared.clone(),
@@ -251,11 +257,12 @@ pub(crate) fn create_workflow_expander_row(
         let workflow_name = workflow_name_for_trigger.clone();
         let workflow_display = workflow_display_for_trigger.clone();
         let parent_window = parent_window_for_trigger.clone();
-    let job_contexts = job_contexts_for_trigger.clone();
-    let workflows_with_active_button = workflows_with_active_shared.clone();
-    let run_digests = run_digests_for_trigger.clone();
-    let notification_manager = notification_manager_for_trigger.clone();
-    let preferences_manager = preferences_manager_for_trigger.clone();
+        let job_contexts = job_contexts_for_trigger.clone();
+        let workflows_with_active_button = workflows_with_active_shared.clone();
+        let run_digests = run_digests_for_trigger.clone();
+        let notification_manager = notification_manager_for_trigger.clone();
+        let preferences_manager = preferences_manager_for_trigger.clone();
+        let repo_model_for_dialog = repo_model_for_trigger.clone();
 
         let dialog = gtk::Dialog::with_buttons(
             Some("Trigger Workflow"),
@@ -266,7 +273,7 @@ pub(crate) fn create_workflow_expander_row(
         dialog.set_default_response(gtk::ResponseType::Accept);
         dialog.set_modal(true);
 
-    let content_area = dialog.content_area();
+        let content_area = dialog.content_area();
         content_area.set_margin_start(12);
         content_area.set_margin_end(12);
         content_area.set_margin_top(12);
@@ -327,8 +334,8 @@ pub(crate) fn create_workflow_expander_row(
         let parent_window_clone = parent_window.clone();
         let workflows_with_active_clone = workflows_with_active_button.clone();
         let run_digests_clone = run_digests.clone();
-    let notification_manager_rc = Rc::new(notification_manager.clone());
-    let preferences_manager_rc = Rc::new(preferences_manager.clone());
+        let notification_manager_rc = Rc::new(notification_manager.clone());
+        let preferences_manager_rc = Rc::new(preferences_manager.clone());
 
         dialog.connect_response(move |dialog, response| {
             if response == gtk::ResponseType::Accept {
@@ -374,6 +381,7 @@ pub(crate) fn create_workflow_expander_row(
                 let workflow_display_for_closure = workflow_display_rc.clone();
                 let notification_manager_for_closure = notification_manager_rc.clone();
                 let preferences_manager_for_closure = preferences_manager_rc.clone();
+                let repo_model_for_closure = repo_model_for_dialog.clone();
 
                 receiver.attach(None, move |result| {
                     let workflows_with_active = workflows_with_active.clone();
@@ -403,6 +411,7 @@ pub(crate) fn create_workflow_expander_row(
                                 notification_manager_handle.as_ref().clone();
                             let preferences_manager_for_reload =
                                 preferences_manager_handle.as_ref().clone();
+                            let repo_model_for_reload = repo_model_for_closure.clone();
 
                             crate::runtime_handle().spawn(async move {
                                 cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
@@ -434,6 +443,7 @@ pub(crate) fn create_workflow_expander_row(
                                         client: client_for_reload.clone(),
                                         owner: owner_for_reload.clone(),
                                         repo: repo_for_reload.clone(),
+                                        repo_model: repo_model_for_reload.clone(),
                                         workflow_id,
                                         workflow_name: workflow_display_for_runs,
                                         runs_box: runs_box.clone(),

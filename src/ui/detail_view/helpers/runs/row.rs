@@ -4,7 +4,7 @@ use super::super::formatting::{
 };
 use super::super::jobs::{load_run_jobs, LoadJobsParams};
 use super::actions::create_actions_box;
-use crate::api::models::WorkflowRun;
+use crate::api::models::{Repo, WorkflowRun};
 use crate::api::GitHubClient;
 use crate::cache::DataCache;
 use gtk4::prelude::*;
@@ -18,6 +18,7 @@ pub(crate) fn create_run_expander_row(
     client: &Arc<Mutex<GitHubClient>>,
     owner: &str,
     repo: &str,
+    repo_model: &Repo,
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
     workflow_id: i64,
@@ -47,6 +48,7 @@ pub(crate) fn create_run_expander_row(
     let jobs_box = build_jobs_placeholder();
     expander.set_child(Some(&jobs_box));
 
+    let parent_window_for_jobs: gtk::Window = parent_window.clone().upcast();
     attach_job_loader(
         &expander,
         jobs_box.clone(),
@@ -58,6 +60,8 @@ pub(crate) fn create_run_expander_row(
         workflow_id,
         cache.clone(),
         job_contexts.clone(),
+        parent_window_for_jobs,
+        repo_model.clone(),
     );
 
     if expand_jobs {
@@ -160,9 +164,13 @@ fn attach_job_loader(
     workflow_id: i64,
     cache: Arc<DataCache>,
     job_contexts: JobContextMap,
+    parent_window: gtk::Window,
+    repo_model: Repo,
 ) {
     let badges_box_for_load = badges_box.clone();
     let job_contexts_for_remove = job_contexts.clone();
+    let parent_window_for_load = parent_window.clone();
+    let repo_model_for_load = repo_model.clone();
 
     expander.connect_expanded_notify(move |exp| {
         if !exp.is_expanded() {
@@ -182,6 +190,8 @@ fn attach_job_loader(
                     badges_box: Some(badges_box_for_load.clone()),
                     cache: cache.clone(),
                     workflow_id,
+                    parent_window: parent_window_for_load.clone(),
+                    repo_model: repo_model_for_load.clone(),
                     background: false,
                     bypass_cache: false,
                     job_contexts: job_contexts.clone(),
