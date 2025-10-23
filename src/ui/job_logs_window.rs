@@ -8,13 +8,14 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct JobLogsWindow {
     window: adw::Window,
     repo: Repo,
     job: Job,
     client: Arc<Mutex<GitHubClient>>,
+    text_view: gtk::TextView,
 }
 
 impl JobLogsWindow {
@@ -34,19 +35,32 @@ impl JobLogsWindow {
             .transient_for(parent)
             .build();
 
+        let text_view = gtk::TextView::builder()
+            .editable(false)
+            .monospace(true)
+            .left_margin(12)
+            .right_margin(12)
+            .top_margin(12)
+            .bottom_margin(12)
+            .wrap_mode(gtk::WrapMode::Word)
+            .build();
+        text_view.buffer().set_text("Fetching logs…");
+
         let logs_window = Self {
             window: window.clone(),
             repo: repo.clone(),
             job: job.clone(),
             client: client.clone(),
+            text_view: text_view.clone(),
         };
 
-        logs_window.build_ui();
+        let refresh_button = logs_window.build_ui();
+        logs_window.connect_refresh_button(&refresh_button);
         logs_window.load_logs();
         logs_window
     }
 
-    fn build_ui(&self) {
+    fn build_ui(&self) -> gtk::Button {
         let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
         // Header bar
@@ -90,22 +104,11 @@ impl JobLogsWindow {
             .vexpand(true)
             .build();
 
-        let text_view = gtk::TextView::builder()
-            .editable(false)
-            .monospace(true)
-            .left_margin(12)
-            .right_margin(12)
-            .top_margin(12)
-            .bottom_margin(12)
-            .build();
-
-        scrolled.set_child(Some(&text_view));
+        scrolled.set_child(Some(&self.text_view));
         main_box.append(&scrolled);
 
         self.window.set_content(Some(&main_box));
-
-        // Connect signals
-        self.connect_refresh_button(&refresh_button, &text_view);
+        refresh_button
     }
 
     fn load_logs(&self) {
@@ -113,7 +116,7 @@ impl JobLogsWindow {
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let job_id = self.job.id;
-        let window = self.window.clone();
+        let text_view = self.text_view.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<String, GitHubError>>(glib::Priority::default());
@@ -122,28 +125,23 @@ impl JobLogsWindow {
             match result {
                 Ok(logs) => {
                     info!("Loaded logs ({} bytes)", logs.len());
-
-                    if let Some(content) = window.content() {
-                        if let Ok(main_box) = content.downcast::<gtk::Box>() {
-                            let mut child = main_box.first_child();
-                            while let Some(widget) = child {
-                                if let Ok(scrolled) =
-                                    widget.clone().downcast::<gtk::ScrolledWindow>()
-                                {
-                                    if let Some(text_view) = scrolled.child() {
-                                        if let Ok(tv) = text_view.downcast::<gtk::TextView>() {
-                                            let buffer = tv.buffer();
-                                            buffer.set_text(&logs);
-                                        }
-                                    }
-                                }
-                                child = widget.next_sibling();
-                            }
-                        }
-                    }
+                    text_view.set_sensitive(true);
+                    text_view.buffer().set_text(&logs);
+                }
+                Err(GitHubError::NotFound) => {
+                    warn!("Job logs unavailable; job may still be running");
+                    text_view.set_sensitive(false);
+                    text_view.buffer().set_text(
+                        "Logs are not yet available for this job. GitHub only provides logs once the job starts streaming output or completes. Try refreshing in a few moments.",
+                    );
                 }
                 Err(e) => {
                     error!("Failed to load logs: {}", e);
+                    text_view.set_sensitive(false);
+                    text_view.buffer().set_text(&format!(
+                        "Unable to load logs right now. Please try again later.\n\nDetails: {}",
+                        e
+                    ));
                 }
             }
 
@@ -157,12 +155,12 @@ impl JobLogsWindow {
         });
     }
 
-    fn connect_refresh_button(&self, button: &gtk::Button, text_view: &gtk::TextView) {
+    fn connect_refresh_button(&self, button: &gtk::Button) {
         let client = self.client.clone();
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let job_id = self.job.id;
-        let text_view = text_view.clone();
+        let text_view = self.text_view.clone();
 
         button.connect_clicked(move |_| {
             let client = client.clone();
@@ -178,11 +176,23 @@ impl JobLogsWindow {
                 match result {
                     Ok(logs) => {
                         info!("Refreshed logs ({} bytes)", logs.len());
-                        let buffer = tv_for_ui.buffer();
-                        buffer.set_text(&logs);
+                        tv_for_ui.set_sensitive(true);
+                        tv_for_ui.buffer().set_text(&logs);
+                    }
+                    Err(GitHubError::NotFound) => {
+                        warn!("Job logs still unavailable during refresh");
+                        tv_for_ui.set_sensitive(false);
+                        tv_for_ui.buffer().set_text(
+                            "Logs are not yet available for this job. GitHub only provides logs once the job starts streaming output or completes. Try refreshing in a few moments.",
+                        );
                     }
                     Err(e) => {
                         error!("Failed to refresh logs: {}", e);
+                        tv_for_ui.set_sensitive(false);
+                        tv_for_ui.buffer().set_text(&format!(
+                            "Unable to load logs right now. Please try again later.\n\nDetails: {}",
+                            e
+                        ));
                     }
                 }
 

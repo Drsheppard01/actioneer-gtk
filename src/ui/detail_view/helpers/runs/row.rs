@@ -62,6 +62,7 @@ pub(crate) fn create_run_expander_row(
         job_contexts.clone(),
         parent_window_for_jobs,
         repo_model.clone(),
+        run.head_branch.clone(),
     );
 
     if expand_jobs {
@@ -124,6 +125,17 @@ fn build_expander(run: &WorkflowRun) -> (gtk::Expander, gtk::Box) {
     subtitle_label.set_valign(gtk::Align::Center);
     text_box.append(&subtitle_label);
 
+    let subtitle_label_weak = subtitle_label.downgrade();
+    let run_for_timer = run.clone();
+    glib::timeout_add_seconds_local(60, move || {
+        if let Some(label) = subtitle_label_weak.upgrade() {
+            label.set_text(&format_run_subtitle(&run_for_timer));
+            glib::ControlFlow::Continue
+        } else {
+            glib::ControlFlow::Break
+        }
+    });
+
     label_box.append(&text_box);
 
     let badges_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -166,11 +178,13 @@ fn attach_job_loader(
     job_contexts: JobContextMap,
     parent_window: gtk::Window,
     repo_model: Repo,
+    run_branch: Option<String>,
 ) {
     let badges_box_for_load = badges_box.clone();
     let job_contexts_for_remove = job_contexts.clone();
     let parent_window_for_load = parent_window.clone();
     let repo_model_for_load = repo_model.clone();
+    let run_branch_for_load = run_branch.clone();
 
     expander.connect_expanded_notify(move |exp| {
         if !exp.is_expanded() {
@@ -195,6 +209,7 @@ fn attach_job_loader(
                     background: false,
                     bypass_cache: false,
                     job_contexts: job_contexts.clone(),
+                    run_branch: run_branch_for_load.clone(),
                 });
             }
         }

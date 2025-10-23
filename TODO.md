@@ -2,9 +2,9 @@
 
 **Goal:** Bring Linux GTK app to feature parity with macOS app based on UI reference and source code analysis.
 
-**Status:** 🔄 **In progress** (parity gaps outstanding)
+**Status:** ✅ **Complete** (parity achieved)
 
-Most macOS features are implemented and shippable, but a few workflow detail polish items remain (see "What's NOT done").
+All macOS features are now implemented in the GTK client, including the final workflow detail polish items.
 
 ## Legend
 - [ ] Not started
@@ -30,13 +30,21 @@ Most macOS features are implemented and shippable, but a few workflow detail pol
 - Visual polish and UI improvements ✅
 
 **What's NOT done (from macOS comparison):**
-- 🔸 Relative time auto-update for run subtitles (labels only refresh on reload)
-- 🔸 Job-specific branch metadata (macOS shows it; GitHub API parity under investigation)
+- ✅ Feature parity achieved – no outstanding gaps identified
 
 ---
 
-## 1. Workflow Run Display Features
+## Current Focus (Session 5 Bugfixes)
+- [✅] Show a friendly message when job logs are not yet available (GitHub 404)
+- [✅] Keep the “Showing X job(s)” label visible after auto-refresh updates
+- [ ] Re-audit recent changes for regressions and add tests where needed
 
+
+## 1. Workflow Run Display Features
+## Recent Updates (Current Session - Continued)
+
+- **Job logs UX** [✅] — Added a persistent text view for the logs window with clear messaging when GitHub has not published logs yet (404) and improved error handling on refresh.
+- **Job list summary** [✅] — Ensured the “Showing X job(s)” label is re-appended on background refreshes so the count stays visible after auto updates.
 ### 1.1 Run Status Icons
 - [✅] Add colored status icons for each run (success=green checkmark, failure=red X, cancelled=gray stop, in_progress=blue bolt, queued=orange clock)
 - [✅] Implement status color coding system
@@ -46,8 +54,8 @@ Most macOS features are implemented and shippable, but a few workflow detail pol
 - [✅] Display run conclusion/status text (e.g., "completed • success • main")
 - [✅] Show branch name for each run
 - [✅] Add relative time display ("2h ago", "Just now", etc.)
-- [ ] Implement time string auto-update (every 60 seconds)
-  - Note: Complex feature requiring weak references to labels; time updates happen on refresh for now
+- [✅] Implement time string auto-update (every 60 seconds)
+   - Labels now refresh in-place every minute using a GLib timeout tied to each run subtitle
 
 ### 1.3 Job Summary Badges
 - [✅] Show job count badges per run (e.g., "🟢 4" for completed jobs)
@@ -80,7 +88,7 @@ Most macOS features are implemented and shippable, but a few workflow detail pol
 - [✅] Show individual jobs under each expanded run
 - [✅] Display job name
 - [✅] Show job status/conclusion with icons
-- [ ] Display job branch name
+- [✅] Display job branch name
 - [✅] Show job status text (e.g., "In Progress", "Success", "Failed")
 
 ### 2.2 Job Action Buttons
@@ -168,7 +176,7 @@ Most macOS features are implemented and shippable, but a few workflow detail pol
 - [✅] Implement jobs cache (per run)
 - [✅] Restore from cache on view load
 - [✅] Cache-first strategy for both runs and jobs
-- [ ] Cache invalidation on refresh - Currently caches persist, refresh always updates
+- [✅] Cache invalidation on refresh - Refresh button now clears the repo cache before reloading
 - [✅] Debounce rapid refresh requests (already implemented via loading guard)
 
 **Implementation Complete:**
@@ -414,7 +422,7 @@ Most macOS features are implemented and shippable, but a few workflow detail pol
 
 ### Known Issues to Fix:
 - [✅] Background auto-refresh with ETag (runs now refresh for every workflow automatically)
-- [ ] Preserve workflow expansion state on repository refresh
+- [✅] Preserve workflow expansion state on repository refresh
 
 ### Files Modified (Session 3):
 - `src/ui/detail_view/helpers.rs` - Fixed run row layout, button positioning, job row alignment and width, added workflow trigger with branch selector
@@ -908,51 +916,7 @@ All major features from the macOS app are now implemented in the GTK Linux clien
 
 ## Remaining Work Assessment (October 20, 2025)
 
-**Status after macOS source comparison:**
-- Core feature parity: ✅ ACHIEVED
-- Completed: Workflow completion notifications (now live)
-- Missing: "View logs" button in detail view (medium value - logs window exists)
-
-### High Priority Items
-
-1. **View Logs Button in Detail View** (Section 2.2) 🟡
-   - [ ] Add "View logs" button for each job in detail view
-   - **Status:** job_logs_window.rs exists and works, just needs wiring
-   - **macOS has this:** Yes - JobLogsView.swift
-   - **Action:** Add button to job rows that opens existing JobLogsWindow
-   - **Estimated effort:** 20-40 minutes
-
-### Low Priority / Optional Items
-
-3. **Time string auto-update** (Section 1.2)
-   - [ ] Implement time string auto-update (every 60 seconds)
-   - **Status:** Deferred - Complex, requires weak references to labels
-   - **Note:** Time updates on refresh; not critical
-
-4. **Job summary auto-refresh** (Section 1.3)
-   - [🔄] Auto-refresh job summaries for active runs
-   - **Status:** Works via full workflow refresh
-   - **Note:** Current auto-refresh handles this adequately
-
-5. **Job branch display** (Section 2.1)
-   - [ ] Display job branch name
-   - **Status:** Blocked - GitHub API may not provide branch per job
-   - **Note:** Low value feature
-
-6. **Cache invalidation** (Section 7)
-   - [ ] Explicit cache invalidation on refresh
-   - **Status:** Refresh fetches fresh data, implicit invalidation works
-   - **Note:** Current approach works well
-
-7. **Background features** (Section 9.1)
-   - [ ] Background auto-refresh with ETag
-   - [ ] Preserve workflow expansion state on repository refresh
-   - **Status:** Manual refresh works; nice-to-have improvements
-
-8. **Welcome screen integration** (Section 9.3)
-   - [✅] Integrate welcome screen into main window
-   - **Status:** Welcome view toggles automatically with authentication state
-   - **Note:** Sign-in/out no longer requires closing the application
+All previously flagged gaps have been closed. No outstanding high- or low-priority items remain after adding job log actions, live time updates, branch metadata, cache invalidation, and expansion preservation.
 
 ### macOS Features Already in GTK
 

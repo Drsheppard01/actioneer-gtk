@@ -12,6 +12,8 @@ use crate::storage::TokenStorage;
 use crate::ui::auth_window::AuthWindow;
 use crate::ui::preferences_window::PreferencesWindow;
 use crate::ui::utils::{update_rate_limit_label, MainContextChannelExt};
+use gio::prelude::*;
+use gio::Menu;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
@@ -201,15 +203,6 @@ impl MainWindow {
         let refresh_button = self.refresh_button.clone();
         header.pack_start(&refresh_button);
 
-        let notification_button = gtk::Button::from_icon_name("dialog-information-symbolic");
-        notification_button.add_css_class("flat");
-        notification_button.set_tooltip_text(Some("Send test notification"));
-        header.pack_start(&notification_button);
-
-        let preferences_button = gtk::Button::from_icon_name("emblem-system-symbolic");
-        preferences_button.set_tooltip_text(Some("Preferences"));
-        header.pack_end(&preferences_button);
-
         let rate_limit_label = self.rate_limit_label.clone();
         rate_limit_label.set_halign(gtk::Align::End);
         let rate_limit_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -217,9 +210,7 @@ impl MainWindow {
         rate_limit_box.append(&rate_limit_label);
         header.pack_end(&rate_limit_box);
 
-        let signout_button = gtk::Button::from_icon_name("system-log-out-symbolic");
-        signout_button.set_tooltip_text(Some("Sign out"));
-        header.pack_end(&signout_button);
+        self.setup_header_menu(&header);
 
         let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         main_box.append(&header);
@@ -300,34 +291,144 @@ impl MainWindow {
         });
 
         self.connect_refresh_button(&refresh_button);
-        self.connect_notification_test_button(&notification_button);
-        self.connect_signout_button(&signout_button);
-        self.connect_preferences_button(&preferences_button);
         self.connect_search();
         self.connect_repo_selection();
     }
 
-    fn connect_notification_test_button(&self, button: &gtk::Button) {
+    fn setup_header_menu(&self, header: &adw::HeaderBar) {
+        self.ensure_window_actions();
+
+        let menu_button = gtk::MenuButton::builder()
+            .icon_name("open-menu-symbolic")
+            .tooltip_text("Application menu")
+            .build();
+        menu_button.add_css_class("flat");
+
+        let menu = Menu::new();
+        menu.append(Some("Preferences"), Some("win.open_preferences"));
+        if cfg!(debug_assertions) {
+            menu.append(
+                Some("Send test notification"),
+                Some("win.send_test_notification"),
+            );
+        }
+        menu.append(Some("Sign out"), Some("win.sign_out"));
+
+        menu_button.set_menu_model(Some(&menu));
+        header.pack_end(&menu_button);
+    }
+
+    fn ensure_window_actions(&self) {
+        let window = self.window.clone();
+
+        if window.lookup_action("open_preferences").is_none() {
+            let this = self.clone();
+            let action = gio::SimpleAction::new("open_preferences", None);
+            action.connect_activate(move |_, _| {
+                this.open_preferences_window();
+            });
+            window.add_action(&action);
+        }
+
+        if window.lookup_action("sign_out").is_none() {
+            let this = self.clone();
+            let action = gio::SimpleAction::new("sign_out", None);
+            action.connect_activate(move |_, _| {
+                this.show_sign_out_dialog();
+            });
+            window.add_action(&action);
+        }
+
+        if cfg!(debug_assertions) && window.lookup_action("send_test_notification").is_none() {
+            let this = self.clone();
+            let action = gio::SimpleAction::new("send_test_notification", None);
+            action.connect_activate(move |_, _| {
+                this.dispatch_test_notification();
+            });
+            window.add_action(&action);
+        }
+    }
+
+    fn open_preferences_window(&self) {
+        if let Some(manager) = &self.preferences_manager {
+            let parent = self.window.clone();
+            let window = PreferencesWindow::new(&parent, manager.clone());
+            window.present();
+        } else {
+            warn!("Preferences unavailable; preferences manager failed to initialize");
+            let dialog = gtk::MessageDialog::new(
+                Some(&self.window),
+                gtk::DialogFlags::MODAL,
+                gtk::MessageType::Info,
+                gtk::ButtonsType::Ok,
+                "Preferences are currently unavailable.",
+            );
+            dialog.connect_response(|dialog, _| dialog.close());
+            dialog.present();
+        }
+    }
+
+    fn show_sign_out_dialog(&self) {
+        let parent = self.window.clone();
+        let this = self.clone();
+
+        let dialog = gtk::MessageDialog::new(
+            Some(&parent),
+            gtk::DialogFlags::MODAL,
+            gtk::MessageType::Warning,
+            gtk::ButtonsType::YesNo,
+            "Are you sure you want to sign out?\n\nYou will need to sign in again to continue.",
+        );
+
+        dialog.connect_response(move |dialog, response| {
+            dialog.close();
+
+            if response == gtk::ResponseType::Yes {
+                match TokenStorage::new() {
+                    Ok(storage) => {
+                        if let Err(err) = storage.delete_token() {
+                            error!("Failed to delete token: {}", err);
+                        } else {
+                            info!("Signed out successfully");
+                            this.enter_signed_out_state();
+                        }
+                    }
+                    Err(err) => {
+                        error!("Failed to access token storage: {}", err);
+                    }
+                }
+            }
+        });
+
+        dialog.present();
+    }
+
+    fn dispatch_test_notification(&self) {
         match self.notification_manager.clone() {
             Some(manager) => {
-                button.connect_clicked(move |_| {
-                    let manager = manager.clone();
-                    crate::runtime_handle().spawn(async move {
-                        if let Err(err) = manager
-                            .notify_message(
-                                "Actioneer notification test",
-                                "If you can read this, GNOME notifications are working.",
-                            )
-                            .await
-                        {
-                            warn!("Failed to dispatch test notification: {}", err);
-                        }
-                    });
+                crate::runtime_handle().spawn(async move {
+                    if let Err(err) = manager
+                        .notify_message(
+                            "Actioneer notification test",
+                            "If you can read this, GNOME notifications are working.",
+                        )
+                        .await
+                    {
+                        warn!("Failed to dispatch test notification: {}", err);
+                    }
                 });
             }
             None => {
-                button.set_sensitive(false);
-                button.set_tooltip_text(Some("Notifications unavailable"));
+                warn!("Notifications unavailable; could not send test notification");
+                let dialog = gtk::MessageDialog::new(
+                    Some(&self.window),
+                    gtk::DialogFlags::MODAL,
+                    gtk::MessageType::Info,
+                    gtk::ButtonsType::Ok,
+                    "Notifications are currently unavailable.",
+                );
+                dialog.connect_response(|dialog, _| dialog.close());
+                dialog.present();
             }
         }
     }
@@ -688,59 +789,6 @@ impl MainWindow {
                 });
             }
         });
-    }
-
-    fn connect_signout_button(&self, button: &gtk::Button) {
-        let parent = self.window.clone();
-        let this = self.clone();
-
-        button.connect_clicked(move |_| {
-            let dialog = gtk::MessageDialog::new(
-                Some(&parent),
-                gtk::DialogFlags::MODAL,
-                gtk::MessageType::Warning,
-                gtk::ButtonsType::YesNo,
-                "Are you sure you want to sign out?\n\nYou will need to sign in again to continue.",
-            );
-
-            let this_inner = this.clone();
-
-            dialog.connect_response(move |dialog, response| {
-                dialog.close();
-
-                if response == gtk::ResponseType::Yes {
-                    match TokenStorage::new() {
-                        Ok(storage) => {
-                            if let Err(err) = storage.delete_token() {
-                                error!("Failed to delete token: {}", err);
-                            } else {
-                                info!("Signed out successfully");
-                                this_inner.enter_signed_out_state();
-                            }
-                        }
-                        Err(err) => {
-                            error!("Failed to access token storage: {}", err);
-                        }
-                    }
-                }
-            });
-
-            dialog.present();
-        });
-    }
-
-    fn connect_preferences_button(&self, button: &gtk::Button) {
-        if let Some(manager) = &self.preferences_manager {
-            let parent = self.window.clone();
-            let manager = manager.clone();
-            button.connect_clicked(move |_| {
-                let window = PreferencesWindow::new(&parent, manager.clone());
-                window.present();
-            });
-        } else {
-            button.set_sensitive(false);
-            button.set_tooltip_text(Some("Preferences unavailable"));
-        }
     }
 
     fn connect_search(&self) {

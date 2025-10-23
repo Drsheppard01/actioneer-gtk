@@ -78,6 +78,8 @@ pub async fn get_job_logs(
                 "Job logs cache miss after 304 Not Modified".to_string(),
             ))
         }
+    } else if status == StatusCode::NOT_FOUND {
+        Err(GitHubError::NotFound)
     } else if status.is_success() {
         // Accept other success statuses like 202
         let body = response.bytes().await?;

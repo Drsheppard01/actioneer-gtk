@@ -28,6 +28,7 @@ pub(super) struct LoadJobsParams {
     pub(super) background: bool,
     pub(super) bypass_cache: bool,
     pub(super) job_contexts: JobContextMap,
+    pub(super) run_branch: Option<String>,
 }
 
 #[derive(Clone)]
@@ -35,6 +36,7 @@ pub(super) struct JobRowContext {
     pub(super) client: Arc<Mutex<GitHubClient>>,
     pub(super) parent_window: gtk::Window,
     pub(super) repo: Repo,
+    pub(super) branch: Option<String>,
 }
 
 pub(super) fn create_job_row_simple(job: &Job, context: Option<JobRowContext>) -> gtk::Box {
@@ -63,6 +65,16 @@ pub(super) fn create_job_row_simple(job: &Job, context: Option<JobRowContext>) -
     right_box.set_valign(gtk::Align::Center);
     right_box.set_halign(gtk::Align::End);
     right_box.set_hexpand(false);
+
+    if let Some(ctx) = context.as_ref() {
+        if let Some(branch) = ctx.branch.as_deref() {
+            let branch_label = gtk::Label::new(Some(branch));
+            branch_label.add_css_class("dim-label");
+            branch_label.add_css_class("caption");
+            branch_label.set_valign(gtk::Align::Center);
+            right_box.append(&branch_label);
+        }
+    }
 
     let status_text = format_job_status(job);
     let status_label = gtk::Label::new(Some(&status_text));
@@ -140,6 +152,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
         background,
         bypass_cache,
         job_contexts,
+        run_branch,
     } = params;
 
     if !background {
@@ -210,6 +223,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     badges_box.clone(),
                     parent_window.clone(),
                     repo_model.clone(),
+                    run_branch.clone(),
                 );
                 {
                     let mut contexts = job_contexts.lock();
@@ -221,13 +235,14 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     client: client.clone(),
                     parent_window: parent_window.clone(),
                     repo: repo_model.clone(),
+                    branch: run_branch.clone(),
                 };
                 for job in jobs.iter() {
                     let job_row = create_job_row_simple(job, Some(row_context.clone()));
                     jobs_box.append(&job_row);
                 }
 
-                if total_jobs > 0 && !background {
+                if total_jobs > 0 {
                     let count_label = gtk::Label::new(Some(&format!(
                         "Showing {} job{}",
                         total_jobs,
@@ -276,6 +291,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     let badges_box_retry = badges_box.clone();
                     let parent_window_retry = parent_window.clone();
                     let repo_model_retry = repo_model.clone();
+                    let run_branch_retry = run_branch.clone();
 
                     retry_button.connect_clicked(move |_| {
                         while let Some(child) = jobs_box_retry.first_child() {
@@ -295,6 +311,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                             background: false,
                             bypass_cache: true,
                             job_contexts: job_contexts_retry.clone(),
+                            run_branch: run_branch_retry.clone(),
                         });
                     });
 
@@ -356,6 +373,7 @@ pub(crate) fn refresh_jobs_for_workflows(
             background: true,
             bypass_cache: true,
             job_contexts: job_contexts.clone(),
+            run_branch: context.branch(),
         });
     }
 }

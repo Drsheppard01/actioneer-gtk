@@ -19,6 +19,7 @@ pub(crate) struct JobRefreshContext {
     badges_box: Option<gtk::Box>,
     parent_window: gtk::Window,
     repo_model: Repo,
+    branch: Option<String>,
 }
 
 impl JobRefreshContext {
@@ -33,6 +34,7 @@ impl JobRefreshContext {
         badges_box: Option<gtk::Box>,
         parent_window: gtk::Window,
         repo_model: Repo,
+        branch: Option<String>,
     ) -> Self {
         Self {
             client,
@@ -45,6 +47,7 @@ impl JobRefreshContext {
             badges_box,
             parent_window,
             repo_model,
+            branch,
         }
     }
 
@@ -86,6 +89,10 @@ impl JobRefreshContext {
 
     pub(crate) fn repo_model(&self) -> Repo {
         self.repo_model.clone()
+    }
+
+    pub(crate) fn branch(&self) -> Option<String> {
+        self.branch.clone()
     }
 }
 
@@ -131,6 +138,7 @@ pub(crate) fn current_job_context_run_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::models::User;
     use crate::cache::DataCache;
 
     #[test]
@@ -163,6 +171,7 @@ mod tests {
             None,
             parent_window.clone(),
             repo_model.clone(),
+            Some("main".to_string()),
         );
         let context_two = JobRefreshContext::new(
             client.clone(),
@@ -175,6 +184,7 @@ mod tests {
             None,
             parent_window.clone(),
             repo_model.clone(),
+            Some("feature".to_string()),
         );
         let context_other = JobRefreshContext::new(
             client.clone(),
@@ -187,6 +197,7 @@ mod tests {
             None,
             parent_window.clone(),
             repo_model.clone(),
+            None,
         );
 
         let job_contexts: JobContextMap = Arc::new(Mutex::new(HashMap::new()));

@@ -330,6 +330,7 @@ impl RepoDetailPane {
         let owner_for_spawn = owner.clone();
         let repo_name_for_spawn = repo_name.clone();
         let cache_for_spawn = cache.clone();
+        let cache_for_ui = cache.clone();
 
         receiver.attach(None, move |result| {
             // Hide loading spinner
@@ -362,7 +363,7 @@ impl RepoDetailPane {
                         &repo_name,
                         repo_model.clone(),
                         &parent_window,
-                        &cache,
+                        &cache_for_ui,
                         &toast_overlay,
                         &job_contexts,
                         &workflows_with_active_runs,
@@ -382,7 +383,7 @@ impl RepoDetailPane {
                         &repo_name,
                         repo_model.clone(),
                         &parent_window,
-                        &cache,
+                        &cache_for_ui,
                         &toast_overlay,
                         &job_contexts,
                         &workflows_with_active_runs,
@@ -576,6 +577,7 @@ impl RepoDetailPane {
             let run_digests_for_ui = run_digests.clone();
             let notification_manager_for_ui = notification_manager_handle.clone();
             let preferences_manager_for_ui = preferences_manager_handle.clone();
+            let cache_for_ui = cache.clone();
 
             receiver.attach(None, move |result| {
                 // Hide loading spinner
@@ -596,7 +598,7 @@ impl RepoDetailPane {
                             &repo_name_for_ui,
                             repo_model_for_ui.clone(),
                             &parent_window_for_ui,
-                            &cache,
+                            &cache_for_ui,
                             &toast_overlay_for_ui,
                             &job_contexts_for_ui,
                             &workflows_with_active_runs_for_ui,
@@ -613,9 +615,18 @@ impl RepoDetailPane {
                 glib::ControlFlow::Break
             });
 
+            let client_for_spawn = client.clone();
+            let owner_for_spawn = owner.clone();
+            let repo_name_for_spawn = repo_name.clone();
+            let cache_for_spawn = cache.clone();
+
             crate::runtime_handle().spawn(async move {
-                let client_clone = client.lock().clone();
-                let result = fetch_workflows(&client_clone, &owner, &repo_name).await;
+                let cache_key = format!("{}/{}", owner_for_spawn, repo_name_for_spawn);
+                cache_for_spawn.clear_repo(&cache_key).await;
+
+                let client_clone = client_for_spawn.lock().clone();
+                let result =
+                    fetch_workflows(&client_clone, &owner_for_spawn, &repo_name_for_spawn).await;
                 let _ = sender.send(result);
             });
         });
