@@ -203,14 +203,14 @@ impl MainWindow {
         let refresh_button = self.refresh_button.clone();
         header.pack_start(&refresh_button);
 
+        self.setup_header_menu(&header);
+
         let rate_limit_label = self.rate_limit_label.clone();
         rate_limit_label.set_halign(gtk::Align::End);
         let rate_limit_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         rate_limit_box.add_css_class("linked");
         rate_limit_box.append(&rate_limit_label);
         header.pack_end(&rate_limit_box);
-
-        self.setup_header_menu(&header);
 
         let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         main_box.append(&header);

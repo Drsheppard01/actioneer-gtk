@@ -20,7 +20,7 @@ impl WelcomeScreen {
         icon_box.set_halign(gtk::Align::Center);
         icon_box.set_margin_bottom(24);
 
-        let icon = gtk::Image::from_icon_name("system-run-symbolic");
+        let icon = gtk::Image::from_icon_name("actioneer");
         icon.set_pixel_size(128);
         icon_box.append(&icon);
         widget.append(&icon_box);
