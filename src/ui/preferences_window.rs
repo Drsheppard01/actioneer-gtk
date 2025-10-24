@@ -61,15 +61,25 @@ impl PreferencesWindow {
         general_page.add(&notifications_group);
         window.add(&general_page);
 
-        let manager_clone = manager.clone();
         let combo_clone = refresh_row.clone();
         let notify_clone = notify_switch.clone();
         let (sender, receiver) =
             glib::MainContext::default().channel::<Preferences>(glib::Priority::default());
 
-        runtime_handle().spawn(async move {
-            let prefs = manager_clone.get().await;
-            let _ = sender.send(prefs);
+        runtime_handle().spawn({
+            let manager = manager.clone();
+            async move {
+                let mut updates = manager.subscribe();
+                if sender.send(updates.borrow().clone()).is_err() {
+                    return;
+                }
+
+                while updates.changed().await.is_ok() {
+                    if sender.send(updates.borrow().clone()).is_err() {
+                        break;
+                    }
+                }
+            }
         });
 
         receiver.attach(None, move |prefs| {
@@ -83,7 +93,7 @@ impl PreferencesWindow {
             };
             combo_clone.set_selected(index);
             notify_clone.set_active(prefs.enable_notifications);
-            glib::ControlFlow::Break
+            glib::ControlFlow::Continue
         });
 
         let manager_for_combo = manager.clone();
@@ -120,6 +130,8 @@ impl PreferencesWindow {
     }
 
     pub fn present(&self) {
+        // Hold a reference to the manager so subscriptions stay alive while the window is visible.
+        let _ = &self.manager;
         self.window.present();
     }
 }

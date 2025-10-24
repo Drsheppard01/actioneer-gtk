@@ -1,3 +1,4 @@
+use crate::config::Config;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -54,6 +55,8 @@ struct DeviceCodeResponse {
 #[derive(Debug, Serialize)]
 struct AccessTokenRequest {
     client_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_secret: Option<String>,
     device_code: String,
     grant_type: String,
 }
@@ -125,8 +128,11 @@ pub async fn poll_device_token(
 ) -> Result<AccessToken, AuthError> {
     let client = reqwest::Client::new();
 
+    let client_secret = Config::github_client_secret().map(str::to_string);
+
     let request = AccessTokenRequest {
         client_id: client_id.to_string(),
+        client_secret,
         device_code: device_code.to_string(),
         grant_type: "urn:ietf:params:oauth:grant-type:device_code".to_string(),
     };

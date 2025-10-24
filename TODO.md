@@ -44,6 +44,7 @@ All macOS features are now implemented in the GTK client, including the final wo
 ## 1. Workflow Run Display Features
 ## Recent Updates (Current Session - Continued)
 
+- **Preferences persistence** [✅] — Restore the main window size and last-selected repository from saved preferences and keep them updated on close.
 - **Sign-out cache reset** [✅] — Clear the shared `DataCache` during sign-out so repo and workflow panes always start fresh for the next session.
 - **Clippy cleanup prep** [🔄] — Began auditing suppressed lints and planning fixes so we can re-enable strict clippy checks without failures.
 - **Job logs UX** [✅] — Added a persistent text view for the logs window with clear messaging when GitHub has not published logs yet (404) and improved error handling on refresh.

@@ -205,50 +205,78 @@ fn build_repo_row(
     let favorites_manager_for_update = favorites_manager.clone();
 
     favorite_button.connect_toggled(move |button| {
-        let is_active = button.is_active();
-        update_favorite_button_visual(button, is_active);
+        let desired_state = button.is_active();
+        update_favorite_button_visual(button, desired_state);
 
         let favorites_arc = favorites_arc_for_update.clone();
         let favorites_manager = favorites_manager_for_update.clone();
 
+        let previous_state = {
+            let favorites = favorites_arc.lock();
+            favorites.contains(&repo_id)
+        };
+
+        if previous_state == desired_state {
+            return;
+        }
+
         if let Some(manager) = favorites_manager {
             let button_clone = button.clone();
-            let (sender, receiver) = glib::MainContext::default()
-                .channel::<Result<(), anyhow::Error>>(glib::Priority::default());
+            let favorites_arc_clone = favorites_arc.clone();
+            let (sender, receiver) =
+                glib::MainContext::default()
+                    .channel::<Result<bool, (anyhow::Error, bool)>>(glib::Priority::default());
 
             receiver.attach(None, move |result| {
                 match result {
-                    Ok(()) => {
-                        let mut favorites = favorites_arc.lock();
-                        if is_active {
+                    Ok(is_now_favorite) => {
+                        let mut favorites = favorites_arc_clone.lock();
+                        if is_now_favorite {
                             favorites.insert(repo_id);
                         } else {
                             favorites.remove(&repo_id);
                         }
+
+                        if button_clone.is_active() != is_now_favorite {
+                            button_clone.set_active(is_now_favorite);
+                            update_favorite_button_visual(&button_clone, is_now_favorite);
+                        }
                     }
-                    Err(err) => {
+                    Err((err, stored_state)) => {
                         warn!("Failed to update favorite {}: {}", repo_id, err);
-                        let revert_state = !is_active;
-                        button_clone.set_active(revert_state);
-                        update_favorite_button_visual(&button_clone, revert_state);
+
+                        let mut favorites = favorites_arc_clone.lock();
+                        if stored_state {
+                            favorites.insert(repo_id);
+                        } else {
+                            favorites.remove(&repo_id);
+                        }
+
+                        if button_clone.is_active() != stored_state {
+                            button_clone.set_active(stored_state);
+                            update_favorite_button_visual(&button_clone, stored_state);
+                        }
                     }
                 }
 
                 glib::ControlFlow::Break
             });
 
+            let manager_for_task = manager.clone();
             crate::runtime_handle().spawn(async move {
-                let outcome = if is_active {
-                    manager.add_favorite(repo_id).await
-                } else {
-                    manager.remove_favorite(repo_id).await
+                let outcome = match manager_for_task.toggle_favorite(repo_id).await {
+                    Ok(next_state) => Ok(next_state),
+                    Err(err) => {
+                        let current_state = manager_for_task.is_favorite(repo_id).await;
+                        Err((err, current_state))
+                    }
                 };
 
                 let _ = sender.send(outcome);
             });
         } else {
             let mut favorites = favorites_arc.lock();
-            if is_active {
+            if desired_state {
                 favorites.insert(repo_id);
             } else {
                 favorites.remove(&repo_id);

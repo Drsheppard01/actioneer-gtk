@@ -9,7 +9,7 @@ use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
 use crate::favorites::FavoritesManager;
 use crate::notifications::NotificationManager;
-use crate::preferences::PreferencesManager;
+use crate::preferences::{Preferences, PreferencesManager};
 use crate::storage::TokenStorage;
 use crate::ui::auth_window::AuthWindow;
 use crate::ui::preferences_window::PreferencesWindow;
@@ -171,6 +171,7 @@ impl MainWindow {
         };
 
         main_window.build_ui();
+        main_window.restore_preferences();
         main_window.prime_favorites();
         main_window.observe_favorites();
         main_window.setup_focus_handler();
@@ -280,6 +281,22 @@ impl MainWindow {
 
         self.window.set_content(Some(&root_stack));
 
+        if let Some(manager) = &self.preferences_manager {
+            let manager = manager.clone();
+            let window_for_size = self.window.clone();
+            window_for_size.connect_close_request(move |win| {
+                let width = win.width();
+                let height = win.height();
+                let manager = manager.clone();
+                crate::runtime_handle().spawn(async move {
+                    if let Err(err) = manager.set_window_size(width, height).await {
+                        warn!("Failed to persist window size: {}", err);
+                    }
+                });
+                glib::Propagation::Proceed
+            });
+        }
+
         let this = self.clone();
         welcome_screen.connect_signin(move || {
             this.show_auth_window();
@@ -297,6 +314,30 @@ impl MainWindow {
         self.connect_refresh_button(&refresh_button);
         self.connect_search();
         self.connect_repo_selection();
+    }
+
+    fn restore_preferences(&self) {
+        if let Some(manager) = &self.preferences_manager {
+            let window = self.window.clone();
+            let selected_repo_id = self.selected_repo_id.clone();
+            let (sender, receiver) =
+                glib::MainContext::default().channel::<Preferences>(glib::Priority::default());
+
+            receiver.attach(None, move |prefs| {
+                window.set_default_size(prefs.window_width, prefs.window_height);
+                {
+                    let mut selected = selected_repo_id.lock();
+                    *selected = prefs.last_selected_repo_id;
+                }
+                glib::ControlFlow::Break
+            });
+
+            let manager = manager.clone();
+            crate::runtime_handle().spawn(async move {
+                let prefs = manager.get().await;
+                let _ = sender.send(prefs);
+            });
+        }
     }
 
     fn setup_header_menu(&self, header: &adw::HeaderBar) {
@@ -439,18 +480,26 @@ impl MainWindow {
 
     fn check_authentication(&self) {
         match TokenStorage::new() {
-            Ok(storage) => match storage.get_token() {
-                Ok(token) => {
-                    info!("Found existing token, initializing client");
-                    if !self.initialize_client(token) {
+            Ok(storage) => {
+                if !storage.has_token() {
+                    info!("No token found, presenting welcome screen");
+                    self.enter_signed_out_state();
+                    return;
+                }
+
+                match storage.get_token() {
+                    Ok(token) => {
+                        info!("Found existing token, initializing client");
+                        if !self.initialize_client(token) {
+                            self.enter_signed_out_state();
+                        }
+                    }
+                    Err(_) => {
+                        info!("Failed to retrieve token despite presence flag; showing welcome screen");
                         self.enter_signed_out_state();
                     }
                 }
-                Err(_) => {
-                    info!("No token found, presenting welcome screen");
-                    self.enter_signed_out_state();
-                }
-            },
+            }
             Err(e) => {
                 error!("Failed to access token storage: {}", e);
                 self.enter_signed_out_state();
@@ -526,6 +575,20 @@ impl MainWindow {
             repos_guard.clear();
         }
 
+        {
+            let mut favorites_guard = self.favorites.lock();
+            favorites_guard.clear();
+        }
+
+        if let Some(manager) = &self.favorites_manager {
+            let manager = manager.clone();
+            crate::runtime_handle().spawn(async move {
+                if let Err(err) = manager.clear_all().await {
+                    warn!("Failed to clear favorites during sign-out: {}", err);
+                }
+            });
+        }
+
         self.actions_states.lock().clear();
         self.actions_checked_at.lock().clear();
         self.workflow_counts.lock().clear();
@@ -539,6 +602,18 @@ impl MainWindow {
         self.show_detail_placeholder();
         self.update_rate_limit_display(None);
         self.show_header_loading(false);
+
+        if let Some(manager) = &self.preferences_manager {
+            let manager = manager.clone();
+            crate::runtime_handle().spawn(async move {
+                if let Err(err) = manager.set_last_selected_repo(None).await {
+                    warn!(
+                        "Failed to reset stored repo selection during sign-out: {}",
+                        err
+                    );
+                }
+            });
+        }
 
         let list_box = self.repo_list.clone();
         glib::idle_add_local_once(move || {
@@ -896,13 +971,30 @@ impl MainWindow {
         match repo {
             Some(repo) => {
                 info!("Handling repo selection: {}", repo.full_name);
-                *self.selected_repo_id.lock() = Some(repo.id);
+                let repo_id = repo.id;
+                *self.selected_repo_id.lock() = Some(repo_id);
+                if let Some(manager) = &self.preferences_manager {
+                    let manager = manager.clone();
+                    crate::runtime_handle().spawn(async move {
+                        if let Err(err) = manager.set_last_selected_repo(Some(repo_id)).await {
+                            warn!("Failed to persist selected repo: {}", err);
+                        }
+                    });
+                }
                 self.start_background_refresh(repo.clone());
                 self.present_repo_detail(repo);
             }
             None => {
                 info!("Deselecting repo");
                 *self.selected_repo_id.lock() = None;
+                if let Some(manager) = &self.preferences_manager {
+                    let manager = manager.clone();
+                    crate::runtime_handle().spawn(async move {
+                        if let Err(err) = manager.set_last_selected_repo(None).await {
+                            warn!("Failed to clear selected repo preference: {}", err);
+                        }
+                    });
+                }
                 self.stop_background_refresh();
                 self.show_detail_placeholder();
             }
