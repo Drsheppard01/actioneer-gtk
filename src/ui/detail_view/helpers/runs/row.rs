@@ -29,7 +29,8 @@ pub(crate) fn create_run_expander_row(
     let run_box = create_run_container();
     let row_container = create_row_container();
 
-    let (expander, badges_box) = build_expander(run);
+    let run_title = format_run_title(run);
+    let (expander, badges_box) = build_expander(run, &run_title);
     let actions_box = create_actions_box(
         run,
         client,
@@ -63,6 +64,7 @@ pub(crate) fn create_run_expander_row(
         parent_window_for_jobs,
         repo_model.clone(),
         run.head_branch.clone(),
+        run_title.clone(),
     );
 
     if expand_jobs {
@@ -95,8 +97,7 @@ fn create_row_container() -> gtk::Box {
     row_container
 }
 
-fn build_expander(run: &WorkflowRun) -> (gtk::Expander, gtk::Box) {
-    let run_title = format_run_title(run);
+fn build_expander(run: &WorkflowRun, run_title: &str) -> (gtk::Expander, gtk::Box) {
     let expander = gtk::Expander::new(Some(&run_title));
     expander.set_margin_start(0);
     expander.set_hexpand(true);
@@ -179,12 +180,14 @@ fn attach_job_loader(
     parent_window: gtk::Window,
     repo_model: Repo,
     run_branch: Option<String>,
+    run_title: String,
 ) {
     let badges_box_for_load = badges_box.clone();
     let job_contexts_for_remove = job_contexts.clone();
     let parent_window_for_load = parent_window.clone();
     let repo_model_for_load = repo_model.clone();
     let run_branch_for_load = run_branch.clone();
+    let run_title_for_load = run_title.clone();
 
     expander.connect_expanded_notify(move |exp| {
         if !exp.is_expanded() {
@@ -210,6 +213,7 @@ fn attach_job_loader(
                     bypass_cache: false,
                     job_contexts: job_contexts.clone(),
                     run_branch: run_branch_for_load.clone(),
+                    run_title: run_title_for_load.clone(),
                 });
             }
         }

@@ -9,6 +9,20 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::{error, info};
 
+fn run_display_title(run: &WorkflowRun) -> String {
+    let base = run
+        .display_title
+        .as_deref()
+        .or(run.name.as_deref())
+        .unwrap_or("Workflow Run");
+
+    if let Some(number) = run.run_number {
+        format!("{} #{}", base, number)
+    } else {
+        base.to_string()
+    }
+}
+
 pub struct RunJobsWindow {
     window: adw::Window,
     repo: Repo,
@@ -24,11 +38,7 @@ impl RunJobsWindow {
         run: WorkflowRun,
         client: Arc<Mutex<GitHubClient>>,
     ) -> Self {
-        let title = run
-            .display_title
-            .as_deref()
-            .or(run.name.as_deref())
-            .unwrap_or("Run");
+        let title = run_display_title(&run);
 
         let window = adw::Window::builder()
             .title(format!("{} - Jobs", title))
@@ -289,6 +299,7 @@ impl RunJobsWindow {
         let client = self.client.clone();
         let jobs = self.jobs.clone();
         let repo = self.repo.clone();
+        let run_title = run_display_title(&self.run);
 
         list_box.connect_row_activated(move |_, row| {
             let index = row.index() as usize;
@@ -298,9 +309,11 @@ impl RunJobsWindow {
             };
 
             if let Some(job) = job {
+                let run_title_for_logs = run_title.clone();
                 let logs_window = super::job_logs_window::JobLogsWindow::new(
                     &window,
                     repo.clone(),
+                    run_title_for_logs,
                     job,
                     client.clone(),
                 );

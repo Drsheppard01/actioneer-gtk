@@ -29,6 +29,7 @@ pub(super) struct LoadJobsParams {
     pub(super) bypass_cache: bool,
     pub(super) job_contexts: JobContextMap,
     pub(super) run_branch: Option<String>,
+    pub(super) run_title: String,
 }
 
 #[derive(Clone)]
@@ -37,6 +38,7 @@ pub(super) struct JobRowContext {
     pub(super) parent_window: gtk::Window,
     pub(super) repo: Repo,
     pub(super) branch: Option<String>,
+    pub(super) run_title: String,
 }
 
 pub(super) fn create_job_row_simple(job: &Job, context: Option<JobRowContext>) -> gtk::Box {
@@ -102,10 +104,12 @@ pub(super) fn create_job_row_simple(job: &Job, context: Option<JobRowContext>) -
         let repo_model = ctx.repo.clone();
         let client = ctx.client.clone();
         let job_for_logs = job.clone();
+        let run_title = ctx.run_title.clone();
         logs_button.connect_clicked(move |_| {
             let logs_window = JobLogsWindow::new(
                 &parent_window,
                 repo_model.clone(),
+                run_title.clone(),
                 job_for_logs.clone(),
                 client.clone(),
             );
@@ -153,6 +157,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
         bypass_cache,
         job_contexts,
         run_branch,
+        run_title,
     } = params;
 
     if !background {
@@ -224,6 +229,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     parent_window.clone(),
                     repo_model.clone(),
                     run_branch.clone(),
+                    run_title.clone(),
                 );
                 {
                     let mut contexts = job_contexts.lock();
@@ -236,6 +242,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     parent_window: parent_window.clone(),
                     repo: repo_model.clone(),
                     branch: run_branch.clone(),
+                    run_title: run_title.clone(),
                 };
                 for job in jobs.iter() {
                     let job_row = create_job_row_simple(job, Some(row_context.clone()));
@@ -292,6 +299,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     let parent_window_retry = parent_window.clone();
                     let repo_model_retry = repo_model.clone();
                     let run_branch_retry = run_branch.clone();
+                    let run_title_retry = run_title.clone();
 
                     retry_button.connect_clicked(move |_| {
                         while let Some(child) = jobs_box_retry.first_child() {
@@ -312,6 +320,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                             bypass_cache: true,
                             job_contexts: job_contexts_retry.clone(),
                             run_branch: run_branch_retry.clone(),
+                            run_title: run_title_retry.clone(),
                         });
                     });
 
@@ -374,6 +383,7 @@ pub(crate) fn refresh_jobs_for_workflows(
             bypass_cache: true,
             job_contexts: job_contexts.clone(),
             run_branch: context.branch(),
+            run_title: context.run_title(),
         });
     }
 }

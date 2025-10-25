@@ -20,6 +20,7 @@ pub(crate) struct JobRefreshContext {
     parent_window: gtk::Window,
     repo_model: Repo,
     branch: Option<String>,
+    run_title: String,
 }
 
 impl JobRefreshContext {
@@ -35,6 +36,7 @@ impl JobRefreshContext {
         parent_window: gtk::Window,
         repo_model: Repo,
         branch: Option<String>,
+        run_title: String,
     ) -> Self {
         Self {
             client,
@@ -48,6 +50,7 @@ impl JobRefreshContext {
             parent_window,
             repo_model,
             branch,
+            run_title,
         }
     }
 
@@ -93,6 +96,10 @@ impl JobRefreshContext {
 
     pub(crate) fn branch(&self) -> Option<String> {
         self.branch.clone()
+    }
+
+    pub(crate) fn run_title(&self) -> String {
+        self.run_title.clone()
     }
 }
 
@@ -172,6 +179,7 @@ mod tests {
             parent_window.clone(),
             repo_model.clone(),
             Some("main".to_string()),
+            "Run One".to_string(),
         );
         let context_two = JobRefreshContext::new(
             client.clone(),
@@ -185,6 +193,7 @@ mod tests {
             parent_window.clone(),
             repo_model.clone(),
             Some("feature".to_string()),
+            "Run Two".to_string(),
         );
         let context_other = JobRefreshContext::new(
             client.clone(),
@@ -198,6 +207,7 @@ mod tests {
             parent_window.clone(),
             repo_model.clone(),
             None,
+            "Other".to_string(),
         );
 
         let job_contexts: JobContextMap = Arc::new(Mutex::new(HashMap::new()));

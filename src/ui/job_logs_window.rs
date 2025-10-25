@@ -17,6 +17,8 @@ pub struct JobLogsWindow {
     client: Arc<Mutex<GitHubClient>>,
     text_view: gtk::TextView,
     toast_overlay: adw::ToastOverlay,
+    run_title: String,
+    job_title: String,
 }
 
 struct ActionButtons {
@@ -29,13 +31,14 @@ impl JobLogsWindow {
     pub fn new(
         parent: &impl IsA<gtk::Window>,
         repo: Repo,
+        run_title: String,
         job: Job,
         client: Arc<Mutex<GitHubClient>>,
     ) -> Self {
-        let job_name = job.name.as_deref().unwrap_or("Job");
+        let job_title = job.name.as_deref().unwrap_or("Job").to_string();
 
         let window = adw::Window::builder()
-            .title(format!("{} - Logs", job_name))
+            .title(format!("{} - Logs", job_title))
             .modal(false)
             .default_width(1000)
             .default_height(700)
@@ -60,6 +63,8 @@ impl JobLogsWindow {
             client: client.clone(),
             text_view: text_view.clone(),
             toast_overlay: toast_overlay.clone(),
+            run_title,
+            job_title,
         };
 
         let buttons = logs_window.build_ui(&toast_overlay, &text_view);
@@ -103,8 +108,7 @@ impl JobLogsWindow {
         info_box.set_margin_start(12);
         info_box.set_margin_end(12);
 
-        let job_name = self.job.name.as_deref().unwrap_or("Job");
-        let job_label = gtk::Label::new(Some(job_name));
+        let job_label = gtk::Label::new(Some(&self.job_title));
         job_label.add_css_class("title-2");
         job_label.set_halign(gtk::Align::Start);
         info_box.append(&job_label);
@@ -265,6 +269,8 @@ impl JobLogsWindow {
         let window = self.window.clone();
         let text_view = self.text_view.clone();
         let overlay = self.toast_overlay.clone();
+        let run_title = self.run_title.clone();
+        let job_title = self.job_title.clone();
 
         button.connect_clicked(move |_| {
             let dialog = gtk::FileChooserNative::builder()
@@ -275,6 +281,9 @@ impl JobLogsWindow {
                 .transient_for(&window)
                 .modal(true)
                 .build();
+
+            let default_name = JobLogsWindow::default_file_name(&run_title, &job_title);
+            dialog.set_current_name(&default_name);
 
             let overlay_for_dialog = overlay.clone();
             let text_for_dialog = text_view.clone();
@@ -342,6 +351,32 @@ impl JobLogsWindow {
 
             dialog.show();
         });
+    }
+
+    fn default_file_name(run_title: &str, job_title: &str) -> String {
+        let run_segment =
+            Self::sanitize_filename_segment(run_title).unwrap_or_else(|| "run".to_string());
+        let job_segment =
+            Self::sanitize_filename_segment(job_title).unwrap_or_else(|| "job".to_string());
+        format!("{} - {}.log", run_segment, job_segment)
+    }
+
+    fn sanitize_filename_segment(input: &str) -> Option<String> {
+        let filtered: String = input
+            .chars()
+            .map(|ch| match ch {
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                c if c.is_control() => '_',
+                _ => ch,
+            })
+            .collect();
+
+        let cleaned = filtered.trim().trim_matches('.').trim().to_string();
+        if cleaned.is_empty() {
+            None
+        } else {
+            Some(cleaned)
+        }
     }
 
     pub fn present(&self) {
