@@ -20,7 +20,21 @@ impl GtkTestGuard {
         static GTK_THREAD_ID: OnceLock<ThreadId> = OnceLock::new();
 
         let mutex = GTK_TEST_MUTEX.get_or_init(|| Mutex::new(()));
-        let guard = mutex.lock().expect("gtk test mutex poisoned");
+        let guard = match mutex.lock() {
+            Ok(guard) => guard,
+            Err(err) => {
+                eprintln!("Skipping {test_name}: GTK test mutex poisoned ({err})");
+                return None;
+            }
+        };
+
+        let current_id = std::thread::current().id();
+        let main_id = GTK_THREAD_ID.get_or_init(|| current_id);
+        if *main_id != current_id {
+            eprintln!("Skipping {test_name}: GTK tests must run on a single thread");
+            drop(guard);
+            return None;
+        }
 
         if !gtk::is_initialized() {
             if let Err(err) = gtk::init() {
@@ -32,14 +46,6 @@ impl GtkTestGuard {
 
         if let Err(err) = adw::init() {
             eprintln!("Skipping {test_name}: failed to init Adwaita ({err})");
-            drop(guard);
-            return None;
-        }
-
-        let current_id = std::thread::current().id();
-        let main_id = GTK_THREAD_ID.get_or_init(|| current_id);
-        if *main_id != current_id {
-            eprintln!("Skipping {test_name}: GTK tests must run on a single thread");
             drop(guard);
             return None;
         }

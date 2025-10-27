@@ -81,7 +81,7 @@ jobs:
       #       target/debug/actioneer
 
   ui-integration:
-    name: UI / integration tests (optional)
+    name: UI / integration tests
     runs-on: ubuntu-latest
     needs: build-test
     if: ${{ github.event_name != 'pull_request' }}
@@ -107,17 +107,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-stable-
       - name: Start Xvfb and run ignored UI tests
+        env:
+          DISPLAY: :99
+          GTK_A11Y: none
         run: |
-          sudo Xvfb :99 -screen 0 1920x1080x24 & export DISPLAY=:99
+          sudo Xvfb :99 -screen 0 1920x1080x24 &
           sleep 2
-          cargo test -- --ignored
-      # Upload UI test logs (commented out for now)
-      # - name: Upload UI test logs
-      #   if: failure()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ui-test-logs
-      #     path: ./target/debug/*.log
+          RUST_TEST_THREADS=1 cargo test -- --ignored --test-threads=1
 
   release-artifact:
     name: Build Release artifact
