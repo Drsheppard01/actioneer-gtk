@@ -201,6 +201,7 @@ pub(crate) fn update_workflow_status_badge(badge: &gtk::Label, latest_run: &Work
 mod tests {
     use super::*;
     use crate::api::models::{Job, WorkflowRun};
+    use crate::ui::test_helpers::gtk_test_guard;
 
     fn run_stub() -> WorkflowRun {
         WorkflowRun {
@@ -258,11 +259,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires GTK display"]
     fn update_job_summary_badges_adds_expected_children() {
-        if gtk::init().is_err() {
-            eprintln!("Skipping update_job_summary_badges_adds_expected_children: GTK unavailable");
+        let Some(_guard) = gtk_test_guard("update_job_summary_badges_adds_expected_children")
+        else {
             return;
-        }
+        };
 
         let jobs = vec![
             Job {
@@ -301,11 +303,11 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires GTK display"]
     fn update_workflow_status_badge_sets_class() {
-        if gtk::init().is_err() {
-            eprintln!("Skipping update_workflow_status_badge_sets_class: GTK unavailable");
+        let Some(_guard) = gtk_test_guard("update_workflow_status_badge_sets_class") else {
             return;
-        }
+        };
 
         let mut run = run_stub();
         run.status = Some("completed".into());

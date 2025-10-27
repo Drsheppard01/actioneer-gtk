@@ -391,13 +391,14 @@ pub(crate) fn refresh_jobs_for_workflows(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::test_helpers::gtk_test_guard;
 
     #[test]
+    #[ignore = "requires GTK display"]
     fn test_job_row_layout_properties() {
-        if gtk::init().is_err() {
-            eprintln!("Skipping test_job_row_layout_properties: GTK unavailable");
+        let Some(_guard) = gtk_test_guard("test_job_row_layout_properties") else {
             return;
-        }
+        };
 
         let job = Job {
             id: 1,

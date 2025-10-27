@@ -560,13 +560,14 @@ fn append_error_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::test_helpers::gtk_test_guard;
 
     #[test]
+    #[ignore = "requires GTK display"]
     fn append_empty_runs_creates_notice() {
-        if gtk::init().is_err() {
-            eprintln!("Skipping append_empty_runs_creates_notice due to missing display");
+        let Some(_guard) = gtk_test_guard("append_empty_runs_creates_notice") else {
             return;
-        }
+        };
 
         let runs_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
         append_empty_runs_state(&runs_box);

@@ -51,6 +51,7 @@ All macOS features are now implemented in the GTK client, including the final wo
 - **Job logs UX** [✅] — Added a persistent text view for the logs window with clear messaging when GitHub has not published logs yet (404) and improved error handling on refresh.
 - **Job list summary** [✅] — Ensured the “Showing X job(s)” label is re-appended on background refreshes so the count stays visible after auto updates.
 - **Job logs actions** [✅] — Added copy-to-clipboard and save-to-file controls with toast feedback for success and failure states.
+- **Headless test stability** [✅] — Centralized a GTK test guard and marked GTK-dependent unit tests as ignored by default to keep headless CI runs from crashing while retaining optional coverage locally.
 ### 1.1 Run Status Icons
 - [✅] Add colored status icons for each run (success=green checkmark, failure=red X, cancelled=gray stop, in_progress=blue bolt, queued=orange clock)
 - [✅] Implement status color coding system

@@ -13,5 +13,8 @@ pub mod state;
 pub mod tasks;
 pub mod utils;
 
+#[cfg(test)]
+pub mod test_helpers;
+
 pub use main_window::MainWindow;
 pub use welcome_screen::WelcomeScreen;

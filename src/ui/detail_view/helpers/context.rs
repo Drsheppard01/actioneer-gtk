@@ -147,15 +147,15 @@ mod tests {
     use super::*;
     use crate::api::models::User;
     use crate::cache::DataCache;
+    use crate::ui::test_helpers::gtk_test_guard;
 
     #[test]
+    #[ignore = "requires GTK display"]
     fn take_job_context_run_ids_removes_entries_for_workflow() {
-        if gtk::init().is_err() {
-            eprintln!(
-                "Skipping take_job_context_run_ids_removes_entries_for_workflow: GTK unavailable"
-            );
+        let Some(_guard) = gtk_test_guard("take_job_context_run_ids_removes_entries_for_workflow")
+        else {
             return;
-        }
+        };
 
         let client = Arc::new(Mutex::new(GitHubClient::new(None).unwrap()));
         let cache = Arc::new(DataCache::new());

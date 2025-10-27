@@ -386,6 +386,7 @@ fn create_cancel_button(
 mod tests {
     use super::*;
     use crate::api::models::WorkflowRun;
+    use crate::ui::test_helpers::gtk_test_guard;
 
     fn run_stub() -> WorkflowRun {
         WorkflowRun {
@@ -405,11 +406,11 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires GTK display"]
     fn open_button_added_when_url_present() {
-        if gtk::init().is_err() || adw::init().is_err() {
-            eprintln!("Skipping open_button_added_when_url_present due to missing display");
+        let Some(_guard) = gtk_test_guard("open_button_added_when_url_present") else {
             return;
-        }
+        };
 
         let run = run_stub();
         let client = Arc::new(Mutex::new(GitHubClient::new(None).unwrap()));
