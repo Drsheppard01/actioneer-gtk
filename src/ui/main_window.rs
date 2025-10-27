@@ -768,6 +768,7 @@ impl MainWindow {
 
         self.schedule_repo_list_refresh();
         self.update_rate_limit_display(rate_info);
+        self.ensure_detail_matches_selection();
     }
 
     fn refresh_repo_status_summaries(&self, repos: &[Repo]) {
@@ -849,6 +850,44 @@ impl MainWindow {
 
             rebuild_repo_list(list_box, context);
         });
+    }
+
+    fn ensure_detail_matches_selection(&self) {
+        let action = {
+            let selected_id = *self.selected_repo_id.lock();
+            let active_id = self
+                .active_detail
+                .borrow()
+                .as_ref()
+                .map(|pane| pane.repo().id);
+
+            match (selected_id, active_id) {
+                (Some(sel), Some(active)) if sel == active => None,
+                (Some(sel), _) => {
+                    let repo = {
+                        let repos = self.repos.lock();
+                        repos.iter().find(|repo| repo.id == sel).cloned()
+                    };
+                    Some(repo)
+                }
+                (None, Some(_)) => Some(None),
+                _ => None,
+            }
+        };
+
+        if let Some(repo_opt) = action {
+            let this = self.clone();
+            glib::idle_add_local_once(move || {
+                if *this.handling_selection.lock() {
+                    return;
+                }
+
+                match repo_opt {
+                    Some(repo) => this.handle_repo_selection(Some(repo)),
+                    None => this.handle_repo_selection(None),
+                }
+            });
+        }
     }
 
     fn observe_favorites(&self) {

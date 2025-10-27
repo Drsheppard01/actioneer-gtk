@@ -19,6 +19,8 @@ pub struct JobLogsWindow {
     toast_overlay: adw::ToastOverlay,
     run_title: String,
     job_title: String,
+    copy_button: gtk::Button,
+    save_button: gtk::Button,
 }
 
 struct ActionButtons {
@@ -56,6 +58,14 @@ impl JobLogsWindow {
         text_view.buffer().set_text("Fetching logs…");
 
         let toast_overlay = adw::ToastOverlay::new();
+        let buttons = Self::build_ui(
+            &window,
+            &toast_overlay,
+            &text_view,
+            &job_title,
+            &repo.full_name,
+        );
+
         let logs_window = Self {
             window: window.clone(),
             repo: repo.clone(),
@@ -65,9 +75,10 @@ impl JobLogsWindow {
             toast_overlay: toast_overlay.clone(),
             run_title,
             job_title,
+            copy_button: buttons.copy.clone(),
+            save_button: buttons.save.clone(),
         };
 
-        let buttons = logs_window.build_ui(&toast_overlay, &text_view);
         logs_window.connect_refresh_button(&buttons.refresh);
         logs_window.connect_copy_button(&buttons.copy);
         logs_window.connect_save_button(&buttons.save);
@@ -77,9 +88,11 @@ impl JobLogsWindow {
     }
 
     fn build_ui(
-        &self,
+        window: &adw::Window,
         toast_overlay: &adw::ToastOverlay,
         text_view: &gtk::TextView,
+        job_title: &str,
+        repo_full_name: &str,
     ) -> ActionButtons {
         let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
@@ -108,11 +121,11 @@ impl JobLogsWindow {
         info_box.set_margin_start(12);
         info_box.set_margin_end(12);
 
-        let job_label = gtk::Label::new(Some(&self.job_title));
+        let job_label = gtk::Label::new(Some(job_title));
         job_label.add_css_class("title-2");
         job_label.set_halign(gtk::Align::Start);
         info_box.append(&job_label);
-        let repo_label = gtk::Label::new(Some(&self.repo.full_name));
+        let repo_label = gtk::Label::new(Some(repo_full_name));
         repo_label.add_css_class("dim-label");
         repo_label.set_halign(gtk::Align::Start);
         info_box.append(&repo_label);
@@ -131,7 +144,7 @@ impl JobLogsWindow {
         main_box.append(&scrolled);
 
         toast_overlay.set_child(Some(&main_box));
-        self.window.set_content(Some(toast_overlay));
+        window.set_content(Some(toast_overlay));
 
         ActionButtons {
             refresh: refresh_button,
@@ -141,11 +154,15 @@ impl JobLogsWindow {
     }
 
     fn load_logs(&self) {
+        self.set_copy_save_enabled(false);
+
         let client = self.client.clone();
         let owner = self.repo.owner.login.clone();
         let repo_name = self.repo.name.clone();
         let job_id = self.job.id;
         let text_view = self.text_view.clone();
+        let copy_button = self.copy_button.clone();
+        let save_button = self.save_button.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<String, GitHubError>>(glib::Priority::default());
@@ -156,6 +173,8 @@ impl JobLogsWindow {
                     info!("Loaded logs ({} bytes)", logs.len());
                     text_view.set_sensitive(true);
                     text_view.buffer().set_text(&logs);
+                    copy_button.set_sensitive(true);
+                    save_button.set_sensitive(true);
                 }
                 Err(GitHubError::NotFound) => {
                     warn!("Job logs unavailable; job may still be running");
@@ -163,6 +182,8 @@ impl JobLogsWindow {
                     text_view.buffer().set_text(
                         "Logs are not yet available for this job. GitHub only provides logs once the job starts streaming output or completes. Try refreshing in a few moments.",
                     );
+                    copy_button.set_sensitive(false);
+                    save_button.set_sensitive(false);
                 }
                 Err(e) => {
                     error!("Failed to load logs: {}", e);
@@ -171,6 +192,8 @@ impl JobLogsWindow {
                         "Unable to load logs right now. Please try again later.\n\nDetails: {}",
                         e
                     ));
+                    copy_button.set_sensitive(false);
+                    save_button.set_sensitive(false);
                 }
             }
             glib::ControlFlow::Break
@@ -189,16 +212,22 @@ impl JobLogsWindow {
         let repo_name = self.repo.name.clone();
         let job_id = self.job.id;
         let text_view = self.text_view.clone();
+        let copy_button = self.copy_button.clone();
+        let save_button = self.save_button.clone();
 
         button.connect_clicked(move |_| {
             let client = client.clone();
             let owner = owner.clone();
             let repo_name = repo_name.clone();
             let tv = text_view.clone();
+            copy_button.set_sensitive(false);
+            save_button.set_sensitive(false);
 
             let (sender, receiver) = glib::MainContext::default()
                 .channel::<Result<String, GitHubError>>(glib::Priority::default());
             let tv_for_ui = tv.clone();
+            let copy_for_result = copy_button.clone();
+            let save_for_result = save_button.clone();
 
             receiver.attach(None, move |result| {
                 match result {
@@ -206,6 +235,8 @@ impl JobLogsWindow {
                         info!("Refreshed logs ({} bytes)", logs.len());
                         tv_for_ui.set_sensitive(true);
                         tv_for_ui.buffer().set_text(&logs);
+                        copy_for_result.set_sensitive(true);
+                        save_for_result.set_sensitive(true);
                     }
                     Err(GitHubError::NotFound) => {
                         warn!("Job logs still unavailable during refresh");
@@ -213,6 +244,8 @@ impl JobLogsWindow {
                         tv_for_ui.buffer().set_text(
                             "Logs are not yet available for this job. GitHub only provides logs once the job starts streaming output or completes. Try refreshing in a few moments.",
                         );
+                        copy_for_result.set_sensitive(false);
+                        save_for_result.set_sensitive(false);
                     }
                     Err(e) => {
                         error!("Failed to refresh logs: {}", e);
@@ -221,6 +254,8 @@ impl JobLogsWindow {
                             "Unable to load logs right now. Please try again later.\n\nDetails: {}",
                             e
                         ));
+                        copy_for_result.set_sensitive(false);
+                        save_for_result.set_sensitive(false);
                     }
                 }
 
@@ -232,6 +267,11 @@ impl JobLogsWindow {
                 let _ = sender.send(result);
             });
         });
+    }
+
+    fn set_copy_save_enabled(&self, enabled: bool) {
+        self.copy_button.set_sensitive(enabled);
+        self.save_button.set_sensitive(enabled);
     }
 
     fn connect_copy_button(&self, button: &gtk::Button) {
