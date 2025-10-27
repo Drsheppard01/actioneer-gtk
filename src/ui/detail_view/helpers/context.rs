@@ -150,7 +150,12 @@ mod tests {
 
     #[test]
     fn take_job_context_run_ids_removes_entries_for_workflow() {
-        gtk::init().ok();
+        if gtk::init().is_err() {
+            eprintln!(
+                "Skipping take_job_context_run_ids_removes_entries_for_workflow: GTK unavailable"
+            );
+            return;
+        }
 
         let client = Arc::new(Mutex::new(GitHubClient::new(None).unwrap()));
         let cache = Arc::new(DataCache::new());

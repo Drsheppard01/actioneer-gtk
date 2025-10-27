@@ -394,7 +394,10 @@ mod tests {
 
     #[test]
     fn test_job_row_layout_properties() {
-        gtk::init().ok();
+        if gtk::init().is_err() {
+            eprintln!("Skipping test_job_row_layout_properties: GTK unavailable");
+            return;
+        }
 
         let job = Job {
             id: 1,

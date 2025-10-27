@@ -259,7 +259,10 @@ mod tests {
 
     #[test]
     fn update_job_summary_badges_adds_expected_children() {
-        gtk::init().ok();
+        if gtk::init().is_err() {
+            eprintln!("Skipping update_job_summary_badges_adds_expected_children: GTK unavailable");
+            return;
+        }
 
         let jobs = vec![
             Job {
@@ -299,7 +302,10 @@ mod tests {
 
     #[test]
     fn update_workflow_status_badge_sets_class() {
-        gtk::init().ok();
+        if gtk::init().is_err() {
+            eprintln!("Skipping update_workflow_status_badge_sets_class: GTK unavailable");
+            return;
+        }
 
         let mut run = run_stub();
         run.status = Some("completed".into());
