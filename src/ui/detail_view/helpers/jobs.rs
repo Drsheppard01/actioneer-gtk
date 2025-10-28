@@ -1,4 +1,4 @@
-use super::context::{JobContextMap, JobRefreshContext};
+use super::context::{JobContextMap, JobRefreshContext, JobRefreshContextParams};
 use super::formatting::{
     format_job_status, get_job_status_class, get_job_status_icon, update_job_summary_badges,
 };
@@ -68,14 +68,14 @@ pub(super) fn create_job_row_simple(job: &Job, context: Option<JobRowContext>) -
     right_box.set_halign(gtk::Align::End);
     right_box.set_hexpand(false);
 
-    if let Some(ctx) = context.as_ref() {
-        if let Some(branch) = ctx.branch.as_deref() {
-            let branch_label = gtk::Label::new(Some(branch));
-            branch_label.add_css_class("dim-label");
-            branch_label.add_css_class("caption");
-            branch_label.set_valign(gtk::Align::Center);
-            right_box.append(&branch_label);
-        }
+    if let Some(ctx) = context.as_ref()
+        && let Some(branch) = ctx.branch.as_deref()
+    {
+        let branch_label = gtk::Label::new(Some(branch));
+        branch_label.add_css_class("dim-label");
+        branch_label.add_css_class("caption");
+        branch_label.set_valign(gtk::Align::Center);
+        right_box.append(&branch_label);
     }
 
     let status_text = format_job_status(job);
@@ -191,7 +191,7 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
     let cache_for_api = cache.clone();
 
     receiver.attach(None, move |result| {
-        let should_clear = matches!(&result, Ok(_)) || !background;
+        let should_clear = result.as_ref().is_ok() || !background;
         if should_clear {
             loop {
                 let child_opt = jobs_box.first_child();
@@ -225,22 +225,22 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     update_job_summary_badges(badges, &jobs);
                 }
 
-                let context = JobRefreshContext::new(
-                    client.clone(),
-                    owner.clone(),
-                    repo.clone(),
+                let context = JobRefreshContext::from_params(JobRefreshContextParams {
+                    client: client.clone(),
+                    owner: owner.clone(),
+                    repo: repo.clone(),
                     workflow_id,
                     run_id,
-                    cache.clone(),
-                    jobs_box.clone(),
-                    badges_box.clone(),
-                    parent_window.clone(),
-                    repo_model.clone(),
-                    run_branch.clone(),
-                    run_title.clone(),
-                );
+                    cache: cache.clone(),
+                    jobs_box: jobs_box.clone(),
+                    badges_box: badges_box.clone(),
+                    parent_window: parent_window.clone(),
+                    repo_model: repo_model.clone(),
+                    branch: run_branch.clone(),
+                    run_title: run_title.clone(),
+                });
                 {
-                    let mut contexts = job_contexts.lock();
+                    let mut contexts = job_contexts.borrow_mut();
                     contexts.insert(run_id, context);
                 }
 
@@ -371,7 +371,7 @@ pub(crate) fn refresh_jobs_for_workflows(
     workflow_ids: &HashSet<i64>,
 ) {
     let contexts: Vec<JobRefreshContext> = {
-        let guard = job_contexts.lock();
+        let guard = job_contexts.borrow();
         guard
             .values()
             .filter(|ctx| workflow_ids.contains(&ctx.workflow_id()))

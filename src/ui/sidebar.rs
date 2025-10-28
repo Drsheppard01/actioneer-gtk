@@ -109,10 +109,10 @@ pub fn rebuild_repo_list(list_box: gtk::ListBox, context: RepoListRenderContext)
                         favorites_manager_for_rows.clone(),
                     );
 
-                    if let Some(full_name) = &selected_full_name {
-                        if repo.full_name == *full_name {
-                            selected_row = Some(row.clone());
-                        }
+                    if let Some(full_name) = &selected_full_name
+                        && repo.full_name == *full_name
+                    {
+                        selected_row = Some(row.clone());
                     }
 
                     list_box.append(&row);
@@ -153,10 +153,10 @@ pub fn row_matches_query(row: &gtk::ListBoxRow, query: &str) -> bool {
         return true;
     }
 
-    if let Some(child) = row.child() {
-        if let Some(label) = find_label_by_name(&child, "repo-name-label") {
-            return label.text().to_lowercase().contains(query);
-        }
+    if let Some(child) = row.child()
+        && let Some(label) = find_label_by_name(&child, "repo-name-label")
+    {
+        return label.text().to_lowercase().contains(query);
     }
 
     false

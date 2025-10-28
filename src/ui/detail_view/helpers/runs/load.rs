@@ -1,6 +1,6 @@
 use super::super::context::JobContextMap;
 use super::super::formatting::update_workflow_status_badge;
-use super::row::create_run_expander_row;
+use super::row::{RunRowContext, create_run_expander_row};
 use crate::api::models::{Repo, WorkflowRun};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
@@ -126,9 +126,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                     previous
                 };
 
-                let changed = previous_digest
-                    .as_ref()
-                    .map_or(true, |prev| prev != &digest);
+                let changed = previous_digest.as_ref() != Some(&digest);
 
                 if changed {
                     prune_stale_job_contexts(&job_contexts, workflow_id, &runs);
@@ -139,8 +137,7 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                         workflow_id,
                         &runs,
                     );
-                }
-                if changed {
+
                     if let (Some(prev), Some(manager)) =
                         (previous_digest.as_ref(), notification_manager.clone())
                     {
@@ -199,11 +196,11 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                     }
                 }
 
-                if let Some(ref badge) = status_badge {
-                    if let Some(latest_run) = runs.first() {
-                        update_workflow_status_badge(badge, latest_run);
-                        badge.set_visible(true);
-                    }
+                if let Some(ref badge) = status_badge
+                    && let Some(latest_run) = runs.first()
+                {
+                    update_workflow_status_badge(badge, latest_run);
+                    badge.set_visible(true);
                 }
 
                 let has_active_runs = update_expander_activity(&expander, workflow_id, &runs);
@@ -225,19 +222,18 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
 
                     for run in runs.iter().take(10) {
                         let expand_jobs = expanded_run_ids_for_ui.contains(&run.id);
-                        let row = create_run_expander_row(
-                            run,
-                            &client,
-                            &owner,
-                            &repo,
-                            &repo_model,
-                            &parent_window_clone,
-                            &cache,
+                        let row_context = RunRowContext {
+                            client: client.clone(),
+                            owner: owner.clone(),
+                            repo: repo.clone(),
+                            repo_model: repo_model.clone(),
+                            parent_window: parent_window_clone.clone(),
+                            cache: cache.clone(),
                             workflow_id,
-                            &toast_overlay,
-                            job_contexts.clone(),
-                            expand_jobs,
-                        );
+                            toast_overlay: toast_overlay.clone(),
+                            job_contexts: job_contexts.clone(),
+                        };
+                        let row = create_run_expander_row(run, &row_context, expand_jobs);
                         runs_box.append(&row);
                     }
                 }
@@ -349,7 +345,7 @@ fn append_empty_runs_state(runs_box: &gtk::Box) {
 
 fn prune_stale_job_contexts(job_contexts: &JobContextMap, workflow_id: i64, runs: &[WorkflowRun]) {
     let active_run_ids: HashSet<i64> = runs.iter().map(|run| run.id).collect();
-    let mut contexts = job_contexts.lock();
+    let mut contexts = job_contexts.borrow_mut();
     contexts.retain(|_, ctx| {
         if ctx.workflow_id() != workflow_id {
             return true;

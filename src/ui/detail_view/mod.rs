@@ -9,13 +9,15 @@ use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
 use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
 mod helpers;
 use helpers::{
-    JobRefreshContext, LoadRunsParams, RunDigest, create_workflow_expander_row,
+    JobContextMap, LoadRunsParams, RunDigest, create_workflow_expander_row,
     current_job_context_run_ids, load_workflow_runs, refresh_jobs_for_workflows,
     take_job_context_run_ids,
 };
@@ -38,9 +40,35 @@ pub struct RepoDetailPane {
     loading: Arc<Mutex<bool>>, // Guard against re-entrant loads
     auto_refresh_source: Arc<Mutex<Option<glib::SourceId>>>, // Auto-refresh timer
     workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>, // Track workflows needing refresh
-    job_contexts: Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
+    job_contexts: JobContextMap,
     run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     notification_manager: Option<NotificationManager>,
+}
+
+#[derive(Clone)]
+pub struct RepoDetailDeps {
+    pub favorites_manager: Option<Arc<FavoritesManager>>,
+    pub preferences_manager: Option<Arc<PreferencesManager>>,
+    pub cache: Arc<DataCache>,
+    pub favorites: Arc<Mutex<HashSet<i64>>>,
+    pub notification_manager: Option<NotificationManager>,
+}
+
+#[derive(Clone)]
+struct WorkflowListContext {
+    list_box: gtk::ListBox,
+    client: Arc<Mutex<GitHubClient>>,
+    owner: String,
+    repo: String,
+    repo_model: Repo,
+    parent_window: adw::ApplicationWindow,
+    cache: Arc<DataCache>,
+    toast_overlay: adw::ToastOverlay,
+    job_contexts: JobContextMap,
+    workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>,
+    run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+    notification_manager: Option<NotificationManager>,
+    preferences_manager: Option<Arc<PreferencesManager>>,
 }
 
 impl RepoDetailPane {
@@ -48,15 +76,11 @@ impl RepoDetailPane {
         parent: adw::ApplicationWindow,
         repo: Repo,
         client: Arc<Mutex<GitHubClient>>,
-        favorites_manager: Option<Arc<FavoritesManager>>,
-        preferences_manager: Option<Arc<PreferencesManager>>,
-        cache: Arc<DataCache>,
-        favorites: Arc<Mutex<HashSet<i64>>>,
-        notification_manager: Option<NotificationManager>,
+        deps: RepoDetailDeps,
     ) -> Self {
         info!("Creating RepoDetailPane for: {}", repo.full_name);
         let workflows = Arc::new(Mutex::new(Vec::new()));
-        let job_contexts = Arc::new(Mutex::new(HashMap::new()));
+        let job_contexts = Rc::new(RefCell::new(HashMap::new()));
 
         let favorite_button = gtk::ToggleButton::new();
         favorite_button.set_icon_name("emblem-favorite-symbolic");
@@ -82,7 +106,8 @@ impl RepoDetailPane {
         let toast_overlay = adw::ToastOverlay::new();
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let run_digests = Arc::new(Mutex::new(HashMap::new()));
-        let notification_manager = notification_manager
+        let notification_manager = deps
+            .notification_manager
             .or_else(|| Some(NotificationManager::new("me.spaceinbox.actioneer")));
 
         let pane = Self {
@@ -90,10 +115,10 @@ impl RepoDetailPane {
             repo: repo.clone(),
             client: client.clone(),
             workflows: workflows.clone(),
-            favorites_manager: favorites_manager.clone(),
-            preferences_manager: preferences_manager.clone(),
-            cache: cache.clone(),
-            favorites: favorites.clone(),
+            favorites_manager: deps.favorites_manager.clone(),
+            preferences_manager: deps.preferences_manager.clone(),
+            cache: deps.cache.clone(),
+            favorites: deps.favorites.clone(),
             favorite_button: favorite_button.clone(),
             refresh_button: refresh_button.clone(),
             buttons_box: buttons_box.clone(),
@@ -122,6 +147,24 @@ impl RepoDetailPane {
 
     pub fn repo(&self) -> &Repo {
         &self.repo
+    }
+
+    fn workflow_list_context(&self) -> WorkflowListContext {
+        WorkflowListContext {
+            list_box: self.list_box.clone(),
+            client: self.client.clone(),
+            owner: self.repo.owner.login.clone(),
+            repo: self.repo.name.clone(),
+            repo_model: self.repo.clone(),
+            parent_window: self.parent.clone(),
+            cache: self.cache.clone(),
+            toast_overlay: self.toast_overlay.clone(),
+            job_contexts: self.job_contexts.clone(),
+            workflows_with_active_runs: self.workflows_with_active_runs.clone(),
+            run_digests: self.run_digests.clone(),
+            notification_manager: self.notification_manager.clone(),
+            preferences_manager: self.preferences_manager.clone(),
+        }
     }
 
     fn build_ui(&self) {
@@ -303,21 +346,22 @@ impl RepoDetailPane {
             *loading_guard = true;
         }
 
-        let client = self.client.clone();
+        let context = self.workflow_list_context();
+        let client = context.client.clone();
         let workflows = self.workflows.clone();
-        let owner = self.repo.owner.login.clone();
-        let repo_name = self.repo.name.clone();
-        let list_box = self.list_box.clone();
-        let parent_window = self.parent.clone();
+        let owner = context.owner.clone();
+        let repo_name = context.repo.clone();
+        let list_box = context.list_box.clone();
+        let parent_window = context.parent_window.clone();
         let loading_guard = self.loading.clone();
-        let cache = self.cache.clone();
-        let toast_overlay = self.toast_overlay.clone();
-        let job_contexts = self.job_contexts.clone();
-        let workflows_with_active_runs = self.workflows_with_active_runs.clone();
-        let run_digests = self.run_digests.clone();
-        let notification_manager = self.notification_manager.clone();
-        let preferences_manager = self.preferences_manager.clone();
-        let repo_model = self.repo.clone();
+        let cache = context.cache.clone();
+        let toast_overlay = context.toast_overlay.clone();
+        let job_contexts = context.job_contexts.clone();
+        let workflows_with_active_runs = context.workflows_with_active_runs.clone();
+        let run_digests = context.run_digests.clone();
+        let notification_manager = context.notification_manager.clone();
+        let preferences_manager = context.preferences_manager.clone();
+        let repo_model = context.repo_model.clone();
 
         // Show loading spinner
         self.show_loading(true);
@@ -434,21 +478,22 @@ impl RepoDetailPane {
             *loading_guard = true;
         }
 
-        let client = self.client.clone();
+        let context = self.workflow_list_context();
+        let client = context.client.clone();
         let workflows = self.workflows.clone();
-        let owner = self.repo.owner.login.clone();
-        let repo_name = self.repo.name.clone();
-        let list_box = self.list_box.clone();
-        let parent_window = self.parent.clone();
+        let owner = context.owner.clone();
+        let repo_name = context.repo.clone();
+        let list_box = context.list_box.clone();
+        let parent_window = context.parent_window.clone();
         let loading_guard = self.loading.clone();
-        let cache = self.cache.clone();
-        let toast_overlay = self.toast_overlay.clone();
-        let job_contexts = self.job_contexts.clone();
-        let workflows_with_active_runs = self.workflows_with_active_runs.clone();
-        let run_digests = self.run_digests.clone();
-        let notification_manager = self.notification_manager.clone();
-        let preferences_manager = self.preferences_manager.clone();
-        let repo_model = self.repo.clone();
+        let cache = context.cache.clone();
+        let toast_overlay = context.toast_overlay.clone();
+        let job_contexts = context.job_contexts.clone();
+        let workflows_with_active_runs = context.workflows_with_active_runs.clone();
+        let run_digests = context.run_digests.clone();
+        let notification_manager = context.notification_manager.clone();
+        let preferences_manager = context.preferences_manager.clone();
+        let repo_model = context.repo_model.clone();
 
         let (sender, receiver) = glib::MainContext::default()
             .channel::<Result<Vec<Workflow>, GitHubError>>(glib::Priority::default());
@@ -517,20 +562,21 @@ impl RepoDetailPane {
     fn connect_refresh_button(&self, button: &gtk::Button) {
         let client = self.client.clone();
         let workflows = self.workflows.clone();
-        let owner = self.repo.owner.login.clone();
-        let repo_name = self.repo.name.clone();
-        let list_box = self.list_box.clone();
+        let context = self.workflow_list_context();
+        let owner = context.owner.clone();
+        let repo_name = context.repo.clone();
+        let list_box = context.list_box.clone();
         let callback_refs = self.clone_for_callbacks();
-        let parent_window = self.parent.clone();
+        let parent_window = context.parent_window.clone();
         let loading_guard = self.loading.clone();
-        let cache = self.cache.clone();
-        let toast_overlay = self.toast_overlay.clone();
-        let job_contexts = self.job_contexts.clone();
-        let workflows_with_active_runs = self.workflows_with_active_runs.clone();
-        let run_digests = self.run_digests.clone();
-        let notification_manager = self.notification_manager.clone();
-        let preferences_manager = self.preferences_manager.clone();
-        let repo_model = self.repo.clone();
+        let cache = context.cache.clone();
+        let toast_overlay = context.toast_overlay.clone();
+        let job_contexts = context.job_contexts.clone();
+        let workflows_with_active_runs = context.workflows_with_active_runs.clone();
+        let run_digests = context.run_digests.clone();
+        let notification_manager = context.notification_manager.clone();
+        let preferences_manager = context.preferences_manager.clone();
+        let repo_model = context.repo_model.clone();
 
         button.connect_clicked(move |_| {
             // Guard against re-entrant calls
@@ -710,20 +756,21 @@ impl RepoDetailPane {
             return;
         }
 
-        let client = self.client.clone();
-        let owner = self.repo.owner.login.clone();
-        let repo_name = self.repo.name.clone();
-        let repo_model = self.repo.clone();
-        let parent_window = self.parent.clone();
-        let list_box = self.list_box.clone();
-        let workflows_with_active = self.workflows_with_active_runs.clone();
+        let list_context = self.workflow_list_context();
+        let client = list_context.client.clone();
+        let owner = list_context.owner.clone();
+        let repo_name = list_context.repo.clone();
+        let repo_model = list_context.repo_model.clone();
+        let parent_window = list_context.parent_window.clone();
+        let list_box = list_context.list_box.clone();
+        let workflows_with_active = list_context.workflows_with_active_runs.clone();
         let auto_refresh_source = self.auto_refresh_source.clone();
-        let job_contexts = self.job_contexts.clone();
-        let cache = self.cache.clone();
-        let toast_overlay = self.toast_overlay.clone();
-        let run_digests = self.run_digests.clone();
-        let notification_manager = self.notification_manager.clone();
-        let preferences_manager = self.preferences_manager.clone();
+        let job_contexts = list_context.job_contexts.clone();
+        let cache = list_context.cache.clone();
+        let toast_overlay = list_context.toast_overlay.clone();
+        let run_digests = list_context.run_digests.clone();
+        let notification_manager = list_context.notification_manager.clone();
+        let preferences_manager = list_context.preferences_manager.clone();
 
         info!(
             "Starting auto-refresh timer with interval: {} seconds",
@@ -734,21 +781,23 @@ impl RepoDetailPane {
         let source_id = glib::timeout_add_seconds_local(refresh_interval_secs as u32, move || {
             info!("Auto-refreshing workflow runs in background");
 
-            Self::refresh_runs_background(
-                &list_box,
-                &client,
-                &owner,
-                &repo_name,
-                repo_model.clone(),
-                &parent_window,
-                &cache,
-                &toast_overlay,
-                &workflows_with_active,
-                &job_contexts,
-                &run_digests,
-                &notification_manager,
-                &preferences_manager,
-            );
+            let background_context = WorkflowListContext {
+                list_box: list_box.clone(),
+                client: client.clone(),
+                owner: owner.clone(),
+                repo: repo_name.clone(),
+                repo_model: repo_model.clone(),
+                parent_window: parent_window.clone(),
+                cache: cache.clone(),
+                toast_overlay: toast_overlay.clone(),
+                job_contexts: job_contexts.clone(),
+                workflows_with_active_runs: workflows_with_active.clone(),
+                run_digests: run_digests.clone(),
+                notification_manager: notification_manager.clone(),
+                preferences_manager: preferences_manager.clone(),
+            };
+
+            Self::refresh_runs_background(&background_context);
 
             glib::ControlFlow::Continue
         });
@@ -757,21 +806,21 @@ impl RepoDetailPane {
     }
 
     /// Refresh runs for all workflows in the background.
-    fn refresh_runs_background(
-        list_box: &gtk::ListBox,
-        client: &Arc<Mutex<GitHubClient>>,
-        owner: &str,
-        repo: &str,
-        repo_model: Repo,
-        parent_window: &adw::ApplicationWindow,
-        cache: &Arc<DataCache>,
-        toast_overlay: &adw::ToastOverlay,
-        workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
-        job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
-        run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
-        notification_manager: &Option<NotificationManager>,
-        preferences_manager: &Option<Arc<PreferencesManager>>,
-    ) {
+    fn refresh_runs_background(context: &WorkflowListContext) {
+        let list_box = context.list_box.clone();
+        let client = context.client.clone();
+        let owner = context.owner.clone();
+        let repo = context.repo.clone();
+        let repo_model = context.repo_model.clone();
+        let parent_window = context.parent_window.clone();
+        let cache = context.cache.clone();
+        let toast_overlay = context.toast_overlay.clone();
+        let workflows_with_active = context.workflows_with_active_runs.clone();
+        let job_contexts = context.job_contexts.clone();
+        let run_digests = context.run_digests.clone();
+        let notification_manager = context.notification_manager.clone();
+        let preferences_manager = context.preferences_manager.clone();
+
         let mut observed_active: HashSet<i64> = HashSet::new();
 
         let mut child = list_box.first_child();
@@ -810,7 +859,7 @@ impl RepoDetailPane {
                                             let status_badge =
                                                 Self::status_badge_for_expander(expander);
                                             let preserved_runs = current_job_context_run_ids(
-                                                job_contexts,
+                                                &job_contexts,
                                                 workflow_id,
                                             );
                                             let workflow_label_stored = unsafe {
@@ -869,7 +918,7 @@ impl RepoDetailPane {
             child = next_sibling;
         }
 
-        refresh_jobs_for_workflows(job_contexts, &observed_active);
+        refresh_jobs_for_workflows(&job_contexts, &observed_active);
 
         *workflows_with_active.lock() = observed_active;
     }
@@ -961,7 +1010,7 @@ fn update_workflows_list(
     parent_window: &adw::ApplicationWindow,
     cache: &Arc<DataCache>,
     toast_overlay: &adw::ToastOverlay,
-    job_contexts: &Arc<Mutex<HashMap<i64, JobRefreshContext>>>,
+    job_contexts: &JobContextMap,
     workflows_with_active_runs: &Arc<Mutex<HashSet<i64>>>,
     run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
     notification_manager: Option<NotificationManager>,
@@ -1013,7 +1062,7 @@ fn update_workflows_list(
     // Remove any job refresh contexts for workflows that are no longer visible
     let visible_workflows: HashSet<i64> = workflows.iter().map(|w| w.id).collect();
     {
-        let mut contexts = job_contexts.lock();
+        let mut contexts = job_contexts.borrow_mut();
         contexts.retain(|_, ctx| visible_workflows.contains(&ctx.workflow_id()));
     }
     {

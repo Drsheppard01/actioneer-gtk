@@ -1,6 +1,6 @@
 use super::WelcomeScreen;
 use super::detail_placeholder::schedule_status_page_update;
-use super::detail_view::RepoDetailPane;
+use super::detail_view::{RepoDetailDeps, RepoDetailPane};
 use super::sidebar::{
     RepoListRenderContext, find_label_by_name, rebuild_repo_list, row_matches_query,
 };
@@ -1053,11 +1053,11 @@ impl MainWindow {
         // Check if we already have a pane for this repo to avoid recreating
         {
             let active = self.active_detail.borrow();
-            if let Some(existing_pane) = active.as_ref() {
-                if existing_pane.repo().id == repo.id {
-                    info!("Pane already exists for this repo, skipping creation");
-                    return;
-                }
+            if let Some(existing_pane) = active.as_ref()
+                && existing_pane.repo().id == repo.id
+            {
+                info!("Pane already exists for this repo, skipping creation");
+                return;
             }
         }
 
@@ -1068,15 +1068,19 @@ impl MainWindow {
 
         match client_opt {
             Some(client) => {
+                let deps = RepoDetailDeps {
+                    favorites_manager: self.favorites_manager.clone(),
+                    preferences_manager: self.preferences_manager.clone(),
+                    cache: self.cache.clone(),
+                    favorites: self.favorites.clone(),
+                    notification_manager: self.notification_manager.clone(),
+                };
+
                 let pane = RepoDetailPane::new(
                     self.window.clone(),
                     repo,
                     Arc::new(Mutex::new(client)),
-                    self.favorites_manager.clone(),
-                    self.preferences_manager.clone(),
-                    self.cache.clone(),
-                    self.favorites.clone(),
-                    self.notification_manager.clone(),
+                    deps,
                 );
                 let stack = self.detail_stack.clone();
                 let active_detail = self.active_detail.clone();
@@ -1168,10 +1172,10 @@ impl MainWindow {
                     }
 
                     // Update rate limit display
-                    if let Some(rate_info) = client.rate_limit_info() {
-                        if rate_sender.send(rate_info).is_err() {
-                            break;
-                        }
+                    if let Some(rate_info) = client.rate_limit_info()
+                        && rate_sender.send(rate_info).is_err()
+                    {
+                        break;
                     }
                 } else {
                     break;

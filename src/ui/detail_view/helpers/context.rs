@@ -3,7 +3,9 @@ use crate::api::models::Repo;
 use crate::cache::DataCache;
 use gtk4::{self as gtk};
 use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Shared state for refreshing job lists when background tasks update.
@@ -23,34 +25,36 @@ pub(crate) struct JobRefreshContext {
     run_title: String,
 }
 
+pub(crate) struct JobRefreshContextParams {
+    pub client: Arc<Mutex<GitHubClient>>,
+    pub owner: String,
+    pub repo: String,
+    pub workflow_id: i64,
+    pub run_id: i64,
+    pub cache: Arc<DataCache>,
+    pub jobs_box: gtk::Box,
+    pub badges_box: Option<gtk::Box>,
+    pub parent_window: gtk::Window,
+    pub repo_model: Repo,
+    pub branch: Option<String>,
+    pub run_title: String,
+}
+
 impl JobRefreshContext {
-    pub(crate) fn new(
-        client: Arc<Mutex<GitHubClient>>,
-        owner: String,
-        repo: String,
-        workflow_id: i64,
-        run_id: i64,
-        cache: Arc<DataCache>,
-        jobs_box: gtk::Box,
-        badges_box: Option<gtk::Box>,
-        parent_window: gtk::Window,
-        repo_model: Repo,
-        branch: Option<String>,
-        run_title: String,
-    ) -> Self {
+    pub(crate) fn from_params(params: JobRefreshContextParams) -> Self {
         Self {
-            client,
-            owner,
-            repo,
-            workflow_id,
-            run_id,
-            cache,
-            jobs_box,
-            badges_box,
-            parent_window,
-            repo_model,
-            branch,
-            run_title,
+            client: params.client,
+            owner: params.owner,
+            repo: params.repo,
+            workflow_id: params.workflow_id,
+            run_id: params.run_id,
+            cache: params.cache,
+            jobs_box: params.jobs_box,
+            badges_box: params.badges_box,
+            parent_window: params.parent_window,
+            repo_model: params.repo_model,
+            branch: params.branch,
+            run_title: params.run_title,
         }
     }
 
@@ -103,10 +107,10 @@ impl JobRefreshContext {
     }
 }
 
-pub(crate) type JobContextMap = Arc<Mutex<HashMap<i64, JobRefreshContext>>>;
+pub(crate) type JobContextMap = Rc<RefCell<HashMap<i64, JobRefreshContext>>>;
 
 pub(crate) fn take_job_context_run_ids(job_contexts: &JobContextMap, workflow_id: i64) -> Vec<i64> {
-    let mut guard = job_contexts.lock();
+    let mut guard = job_contexts.borrow_mut();
     let run_ids: Vec<i64> = guard
         .iter()
         .filter_map(|(&run_id, ctx)| {
@@ -129,7 +133,7 @@ pub(crate) fn current_job_context_run_ids(
     job_contexts: &JobContextMap,
     workflow_id: i64,
 ) -> Vec<i64> {
-    let guard = job_contexts.lock();
+    let guard = job_contexts.borrow();
     guard
         .iter()
         .filter_map(|(&run_id, ctx)| {
@@ -172,52 +176,52 @@ mod tests {
             permissions: None,
         };
 
-        let context_one = JobRefreshContext::new(
-            client.clone(),
-            "owner".to_string(),
-            "repo".to_string(),
-            42,
-            1,
-            cache.clone(),
-            jobs_box.clone(),
-            None,
-            parent_window.clone(),
-            repo_model.clone(),
-            Some("main".to_string()),
-            "Run One".to_string(),
-        );
-        let context_two = JobRefreshContext::new(
-            client.clone(),
-            "owner".to_string(),
-            "repo".to_string(),
-            42,
-            2,
-            cache.clone(),
-            jobs_box.clone(),
-            None,
-            parent_window.clone(),
-            repo_model.clone(),
-            Some("feature".to_string()),
-            "Run Two".to_string(),
-        );
-        let context_other = JobRefreshContext::new(
-            client.clone(),
-            "owner".to_string(),
-            "repo".to_string(),
-            7,
-            99,
-            cache.clone(),
-            jobs_box.clone(),
-            None,
-            parent_window.clone(),
-            repo_model.clone(),
-            None,
-            "Other".to_string(),
-        );
+        let context_one = JobRefreshContext::from_params(JobRefreshContextParams {
+            client: client.clone(),
+            owner: "owner".to_string(),
+            repo: "repo".to_string(),
+            workflow_id: 42,
+            run_id: 1,
+            cache: cache.clone(),
+            jobs_box: jobs_box.clone(),
+            badges_box: None,
+            parent_window: parent_window.clone(),
+            repo_model: repo_model.clone(),
+            branch: Some("main".to_string()),
+            run_title: "Run One".to_string(),
+        });
+        let context_two = JobRefreshContext::from_params(JobRefreshContextParams {
+            client: client.clone(),
+            owner: "owner".to_string(),
+            repo: "repo".to_string(),
+            workflow_id: 42,
+            run_id: 2,
+            cache: cache.clone(),
+            jobs_box: jobs_box.clone(),
+            badges_box: None,
+            parent_window: parent_window.clone(),
+            repo_model: repo_model.clone(),
+            branch: Some("feature".to_string()),
+            run_title: "Run Two".to_string(),
+        });
+        let context_other = JobRefreshContext::from_params(JobRefreshContextParams {
+            client: client.clone(),
+            owner: "owner".to_string(),
+            repo: "repo".to_string(),
+            workflow_id: 7,
+            run_id: 99,
+            cache: cache.clone(),
+            jobs_box: jobs_box.clone(),
+            badges_box: None,
+            parent_window: parent_window.clone(),
+            repo_model: repo_model.clone(),
+            branch: None,
+            run_title: "Other".to_string(),
+        });
 
-        let job_contexts: JobContextMap = Arc::new(Mutex::new(HashMap::new()));
+        let job_contexts: JobContextMap = Rc::new(RefCell::new(HashMap::new()));
         {
-            let mut guard = job_contexts.lock();
+            let mut guard = job_contexts.borrow_mut();
             guard.insert(1, context_one);
             guard.insert(2, context_two);
             guard.insert(99, context_other);
@@ -228,7 +232,7 @@ mod tests {
         assert!(removed_ids.contains(&1));
         assert!(removed_ids.contains(&2));
 
-        let guard = job_contexts.lock();
+        let guard = job_contexts.borrow();
         assert!(!guard.contains_key(&1));
         assert!(!guard.contains_key(&2));
         assert!(guard.contains_key(&99));

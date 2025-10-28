@@ -10,16 +10,18 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::error;
 
-pub(super) fn create_actions_box(
-    run: &WorkflowRun,
-    client: &Arc<Mutex<GitHubClient>>,
-    owner: &str,
-    repo: &str,
-    parent_window: &adw::ApplicationWindow,
-    cache: &Arc<DataCache>,
-    workflow_id: i64,
-    toast_overlay: &adw::ToastOverlay,
-) -> gtk::Box {
+#[derive(Clone)]
+pub(super) struct RunActionContext {
+    pub(super) client: Arc<Mutex<GitHubClient>>,
+    pub(super) owner: String,
+    pub(super) repo: String,
+    pub(super) parent_window: adw::ApplicationWindow,
+    pub(super) cache: Arc<DataCache>,
+    pub(super) workflow_id: i64,
+    pub(super) toast_overlay: adw::ToastOverlay,
+}
+
+pub(super) fn create_actions_box(run: &WorkflowRun, context: &RunActionContext) -> gtk::Box {
     let actions_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     actions_box.set_valign(gtk::Align::Start);
     actions_box.set_halign(gtk::Align::End);
@@ -29,42 +31,15 @@ pub(super) fn create_actions_box(
     }
 
     if run.is_rerunnable() {
-        actions_box.append(&create_rerun_button(
-            run,
-            client,
-            owner,
-            repo,
-            parent_window,
-            cache,
-            workflow_id,
-            toast_overlay,
-        ));
+        actions_box.append(&create_rerun_button(run, context));
     }
 
     if run.has_failed_jobs() {
-        actions_box.append(&create_rerun_failed_button(
-            run,
-            client,
-            owner,
-            repo,
-            parent_window,
-            cache,
-            workflow_id,
-            toast_overlay,
-        ));
+        actions_box.append(&create_rerun_failed_button(run, context));
     }
 
     if run.is_cancellable() {
-        actions_box.append(&create_cancel_button(
-            run,
-            client,
-            owner,
-            repo,
-            parent_window,
-            cache,
-            workflow_id,
-            toast_overlay,
-        ));
+        actions_box.append(&create_cancel_button(run, context));
     }
 
     actions_box
@@ -86,30 +61,22 @@ fn create_open_button(url: &str) -> gtk::Button {
     button
 }
 
-fn create_rerun_button(
-    run: &WorkflowRun,
-    client: &Arc<Mutex<GitHubClient>>,
-    owner: &str,
-    repo: &str,
-    parent_window: &adw::ApplicationWindow,
-    cache: &Arc<DataCache>,
-    workflow_id: i64,
-    toast_overlay: &adw::ToastOverlay,
-) -> gtk::Button {
+fn create_rerun_button(run: &WorkflowRun, context: &RunActionContext) -> gtk::Button {
     let button = gtk::Button::from_icon_name("view-refresh-symbolic");
     button.set_tooltip_text(Some("Re-run workflow"));
     button.add_css_class("flat");
     button.add_css_class("circular");
     button.add_css_class("warning");
 
-    let client = client.clone();
-    let owner = owner.to_string();
-    let repo = repo.to_string();
+    let client = context.client.clone();
+    let owner = context.owner.clone();
+    let repo = context.repo.clone();
     let run_id = run.id;
-    let parent_window = parent_window.clone();
-    let toast_overlay = toast_overlay.clone();
+    let parent_window = context.parent_window.clone();
+    let toast_overlay = context.toast_overlay.clone();
     let run_title = format_run_title(run);
-    let cache = cache.clone();
+    let cache = context.cache.clone();
+    let workflow_id = context.workflow_id;
 
     button.connect_clicked(move |btn| {
         let dialog = gtk::MessageDialog::new(
@@ -184,30 +151,22 @@ fn create_rerun_button(
     button
 }
 
-fn create_rerun_failed_button(
-    run: &WorkflowRun,
-    client: &Arc<Mutex<GitHubClient>>,
-    owner: &str,
-    repo: &str,
-    parent_window: &adw::ApplicationWindow,
-    cache: &Arc<DataCache>,
-    workflow_id: i64,
-    toast_overlay: &adw::ToastOverlay,
-) -> gtk::Button {
+fn create_rerun_failed_button(run: &WorkflowRun, context: &RunActionContext) -> gtk::Button {
     let button = gtk::Button::from_icon_name("system-reboot-symbolic");
     button.set_tooltip_text(Some("Re-run failed jobs"));
     button.add_css_class("flat");
     button.add_css_class("circular");
     button.add_css_class("error");
 
-    let client = client.clone();
-    let owner = owner.to_string();
-    let repo = repo.to_string();
+    let client = context.client.clone();
+    let owner = context.owner.clone();
+    let repo = context.repo.clone();
     let run_id = run.id;
-    let parent_window = parent_window.clone();
-    let toast_overlay = toast_overlay.clone();
+    let parent_window = context.parent_window.clone();
+    let toast_overlay = context.toast_overlay.clone();
     let run_title = format_run_title(run);
-    let cache = cache.clone();
+    let cache = context.cache.clone();
+    let workflow_id = context.workflow_id;
 
     button.connect_clicked(move |btn| {
         let dialog = gtk::MessageDialog::new(
@@ -286,30 +245,22 @@ fn create_rerun_failed_button(
     button
 }
 
-fn create_cancel_button(
-    run: &WorkflowRun,
-    client: &Arc<Mutex<GitHubClient>>,
-    owner: &str,
-    repo: &str,
-    parent_window: &adw::ApplicationWindow,
-    cache: &Arc<DataCache>,
-    workflow_id: i64,
-    toast_overlay: &adw::ToastOverlay,
-) -> gtk::Button {
+fn create_cancel_button(run: &WorkflowRun, context: &RunActionContext) -> gtk::Button {
     let button = gtk::Button::from_icon_name("process-stop-symbolic");
     button.set_tooltip_text(Some("Cancel run"));
     button.add_css_class("flat");
     button.add_css_class("circular");
     button.add_css_class("destructive-action");
 
-    let client = client.clone();
-    let owner = owner.to_string();
-    let repo = repo.to_string();
+    let client = context.client.clone();
+    let owner = context.owner.clone();
+    let repo = context.repo.clone();
     let run_id = run.id;
-    let parent_window = parent_window.clone();
-    let toast_overlay = toast_overlay.clone();
+    let parent_window = context.parent_window.clone();
+    let toast_overlay = context.toast_overlay.clone();
     let run_title = format_run_title(run);
-    let cache = cache.clone();
+    let cache = context.cache.clone();
+    let workflow_id = context.workflow_id;
 
     button.connect_clicked(move |btn| {
         let dialog = gtk::MessageDialog::new(

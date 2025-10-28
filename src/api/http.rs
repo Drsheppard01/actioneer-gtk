@@ -41,10 +41,10 @@ impl ResponseHandler {
         request: reqwest::RequestBuilder,
         cache_key: Option<&str>,
     ) -> reqwest::RequestBuilder {
-        if let Some(key) = cache_key {
-            if let Some(etag) = self.cached_etag(key) {
-                return request.header(header::IF_NONE_MATCH, etag);
-            }
+        if let Some(key) = cache_key
+            && let Some(etag) = self.cached_etag(key)
+        {
+            return request.header(header::IF_NONE_MATCH, etag);
         }
 
         request
@@ -55,21 +55,21 @@ impl ResponseHandler {
         let remaining = headers.get("x-ratelimit-remaining");
         let reset = headers.get("x-ratelimit-reset");
 
-        if let (Some(limit), Some(remaining), Some(reset)) = (limit, remaining, reset) {
-            if let (Ok(limit), Ok(remaining), Ok(reset)) = (
+        if let (Some(limit), Some(remaining), Some(reset)) = (limit, remaining, reset)
+            && let (Ok(limit), Ok(remaining), Ok(reset)) = (
                 limit.to_str().unwrap_or_default().parse::<i64>(),
                 remaining.to_str().unwrap_or_default().parse::<i64>(),
                 reset.to_str().unwrap_or_default().parse::<i64>(),
-            ) {
-                let info = RateLimitInfo {
-                    limit,
-                    remaining,
-                    reset,
-                };
+            )
+        {
+            let info = RateLimitInfo {
+                limit,
+                remaining,
+                reset,
+            };
 
-                if let Ok(mut guard) = self.rate_limit.lock() {
-                    *guard = Some(info);
-                }
+            if let Ok(mut guard) = self.rate_limit.lock() {
+                *guard = Some(info);
             }
         }
     }
@@ -92,10 +92,10 @@ impl ResponseHandler {
                 self.deserialize_json(body.as_ref())
             }
             StatusCode::NOT_MODIFIED => {
-                if let Some(key) = cache_key {
-                    if let Some(cached) = self.cached_body(key) {
-                        return self.deserialize_json(cached.as_slice());
-                    }
+                if let Some(key) = cache_key
+                    && let Some(cached) = self.cached_body(key)
+                {
+                    return self.deserialize_json(cached.as_slice());
                 }
 
                 warn!("Received 304 Not Modified but no cached response available");
