@@ -7,4 +7,4 @@ mod workflows;
 pub(crate) use context::{JobContextMap, current_job_context_run_ids, take_job_context_run_ids};
 pub(crate) use jobs::refresh_jobs_for_workflows;
 pub(crate) use runs::{LoadRunsParams, RunDigest, load_workflow_runs};
-pub(crate) use workflows::create_workflow_expander_row;
+pub(crate) use workflows::{WorkflowRowContext, WorkflowRowSettings, create_workflow_expander_row};

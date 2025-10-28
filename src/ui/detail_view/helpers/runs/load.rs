@@ -23,6 +23,25 @@ pub(crate) struct RunDigest {
     pub(crate) updated_at: Option<String>,
 }
 
+#[derive(Clone)]
+struct RunErrorContext {
+    runs_box: gtk::Box,
+    client: Arc<Mutex<GitHubClient>>,
+    owner: String,
+    repo: String,
+    parent_window: adw::ApplicationWindow,
+    expander: gtk::Expander,
+    cache: Arc<DataCache>,
+    toast_overlay: adw::ToastOverlay,
+    job_contexts: JobContextMap,
+    workflows_with_active: Arc<Mutex<HashSet<i64>>>,
+    run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+    workflow_name: String,
+    notification_manager: Option<NotificationManager>,
+    preferences_manager: Option<Arc<PreferencesManager>>,
+    repo_model: Repo,
+}
+
 pub(crate) struct LoadRunsParams {
     pub client: Arc<Mutex<GitHubClient>>,
     pub owner: String,
@@ -245,25 +264,25 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                         workflow_id, error
                     );
                 } else {
-                    append_error_state(
-                        &runs_box,
-                        error,
-                        workflow_id,
-                        &client,
-                        &owner,
-                        &repo,
-                        &parent_window_clone,
-                        &expander_for_retry,
-                        &cache,
-                        &toast_overlay_for_retry,
-                        &job_contexts_for_retry,
-                        &workflows_with_active,
-                        &run_digests_for_ui,
-                        workflow_name.clone(),
-                        notification_manager.clone(),
-                        preferences_manager.clone(),
-                        repo_model.clone(),
-                    );
+                    let error_context = RunErrorContext {
+                        runs_box: runs_box.clone(),
+                        client: client.clone(),
+                        owner: owner.clone(),
+                        repo: repo.clone(),
+                        parent_window: parent_window_clone.clone(),
+                        expander: expander_for_retry.clone(),
+                        cache: cache.clone(),
+                        toast_overlay: toast_overlay_for_retry.clone(),
+                        job_contexts: job_contexts_for_retry.clone(),
+                        workflows_with_active: workflows_with_active.clone(),
+                        run_digests: run_digests_for_ui.clone(),
+                        workflow_name: workflow_name.clone(),
+                        notification_manager: notification_manager.clone(),
+                        preferences_manager: preferences_manager.clone(),
+                        repo_model: repo_model.clone(),
+                    };
+
+                    append_error_state(error, workflow_id, error_context);
                 }
             }
         }
@@ -470,25 +489,25 @@ fn append_runs_header(runs_box: &gtk::Box, run_count: usize) {
     runs_box.append(&count_label);
 }
 
-fn append_error_state(
-    runs_box: &gtk::Box,
-    error: GitHubError,
-    workflow_id: i64,
-    client: &Arc<Mutex<GitHubClient>>,
-    owner: &str,
-    repo: &str,
-    parent_window: &adw::ApplicationWindow,
-    expander: &gtk::Expander,
-    cache: &Arc<DataCache>,
-    toast_overlay: &adw::ToastOverlay,
-    job_contexts: &JobContextMap,
-    workflows_with_active: &Arc<Mutex<HashSet<i64>>>,
-    run_digests: &Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
-    workflow_name: String,
-    notification_manager: Option<NotificationManager>,
-    preferences_manager: Option<Arc<PreferencesManager>>,
-    repo_model: Repo,
-) {
+fn append_error_state(error: GitHubError, workflow_id: i64, context: RunErrorContext) {
+    let RunErrorContext {
+        runs_box,
+        client,
+        owner,
+        repo,
+        parent_window,
+        expander,
+        cache,
+        toast_overlay,
+        job_contexts,
+        workflows_with_active,
+        run_digests,
+        workflow_name,
+        notification_manager,
+        preferences_manager,
+        repo_model,
+    } = context;
+
     error!("Failed to load runs: {}", error);
 
     let error_box = gtk::Box::new(gtk::Orientation::Vertical, 8);
@@ -514,8 +533,8 @@ fn append_error_state(
 
     let runs_box_retry = runs_box.clone();
     let client_retry = client.clone();
-    let owner_retry = owner.to_string();
-    let repo_retry = repo.to_string();
+    let owner_retry = owner.clone();
+    let repo_retry = repo.clone();
     let parent_window_retry = parent_window.clone();
     let expander_retry = expander.clone();
     let cache_retry = cache.clone();

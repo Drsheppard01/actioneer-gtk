@@ -16,23 +16,47 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tracing::{error, info};
 
+#[derive(Clone)]
+pub(crate) struct WorkflowRowContext {
+    pub client: Arc<Mutex<GitHubClient>>,
+    pub owner: String,
+    pub repo: String,
+    pub repo_model: Repo,
+    pub parent_window: adw::ApplicationWindow,
+    pub cache: Arc<DataCache>,
+    pub toast_overlay: adw::ToastOverlay,
+    pub job_contexts: JobContextMap,
+    pub workflows_with_active_runs: Arc<Mutex<HashSet<i64>>>,
+    pub run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
+    pub notification_manager: Option<NotificationManager>,
+    pub preferences_manager: Option<Arc<PreferencesManager>>,
+}
+
+pub(crate) struct WorkflowRowSettings {
+    pub should_expand: bool,
+    pub initial_expanded_run_ids: Vec<i64>,
+}
+
 pub(crate) fn create_workflow_expander_row(
     workflow: &Workflow,
-    client: &Arc<Mutex<GitHubClient>>,
-    owner: &str,
-    repo: &str,
-    repo_model: Repo,
-    should_expand: bool,
-    parent_window: &adw::ApplicationWindow,
-    cache: &Arc<DataCache>,
-    toast_overlay: adw::ToastOverlay,
-    job_contexts: JobContextMap,
-    workflows_with_active: Arc<Mutex<HashSet<i64>>>,
-    run_digests: Arc<Mutex<HashMap<i64, Vec<RunDigest>>>>,
-    notification_manager: Option<NotificationManager>,
-    preferences_manager: Option<Arc<PreferencesManager>>,
-    initial_expanded_run_ids: Vec<i64>,
+    context: &WorkflowRowContext,
+    settings: WorkflowRowSettings,
 ) -> gtk::ListBoxRow {
+    let should_expand = settings.should_expand;
+    let initial_expanded_run_ids = Rc::new(RefCell::new(Some(settings.initial_expanded_run_ids)));
+    let client = context.client.clone();
+    let owner = context.owner.clone();
+    let repo = context.repo.clone();
+    let repo_model = context.repo_model.clone();
+    let parent_window = context.parent_window.clone();
+    let cache = context.cache.clone();
+    let toast_overlay = context.toast_overlay.clone();
+    let job_contexts = context.job_contexts.clone();
+    let workflows_with_active = context.workflows_with_active_runs.clone();
+    let run_digests = context.run_digests.clone();
+    let notification_manager = context.notification_manager.clone();
+    let preferences_manager = context.preferences_manager.clone();
+
     let row = gtk::ListBoxRow::new();
     row.set_activatable(false);
     row.set_selectable(false);
@@ -88,8 +112,8 @@ pub(crate) fn create_workflow_expander_row(
     main_box.append(&expander);
 
     let client_for_trigger = client.clone();
-    let owner_for_trigger = owner.to_string();
-    let repo_for_trigger = repo.to_string();
+    let owner_for_trigger = owner.clone();
+    let repo_for_trigger = repo.clone();
     let workflow_id_for_trigger = workflow.id;
     let workflow_name_for_trigger = workflow.name.clone();
     let workflow_display_for_trigger = workflow_display_name.clone();
@@ -105,12 +129,11 @@ pub(crate) fn create_workflow_expander_row(
     let run_digests_for_trigger = run_digests_shared.clone();
     let notification_manager_for_trigger = notification_manager_shared.clone();
     let preferences_manager_for_trigger = preferences_manager_shared.clone();
-    let initial_expanded_run_ids = Rc::new(RefCell::new(Some(initial_expanded_run_ids)));
     let workflows_with_active_shared = workflows_with_active.clone();
 
     let workflow_id = workflow.id;
-    let owner_string = owner.to_string();
-    let repo_string = repo.to_string();
+    let owner_string = owner.clone();
+    let repo_string = repo.clone();
     let workflow_display_shared = workflow_display_name.clone();
     let client_shared = client.clone();
     let runs_box_shared = runs_box.clone();
@@ -207,41 +230,41 @@ pub(crate) fn create_workflow_expander_row(
         expander.set_expanded(true);
         is_programmatic_expand.set(false);
 
-        if let Some(child) = runs_box.first_child() {
-            if child.is::<gtk::Label>() {
-                let preserved_runs = {
-                    let mut initial_opt = initial_expanded_runs_shared.borrow_mut();
-                    if let Some(vec) = initial_opt.take() {
-                        vec
-                    } else {
-                        drop(initial_opt);
-                        take_job_context_run_ids(&job_contexts_shared, workflow_id)
-                    }
-                };
+        if let Some(child) = runs_box.first_child()
+            && child.is::<gtk::Label>()
+        {
+            let preserved_runs = {
+                let mut initial_opt = initial_expanded_runs_shared.borrow_mut();
+                if let Some(vec) = initial_opt.take() {
+                    vec
+                } else {
+                    drop(initial_opt);
+                    take_job_context_run_ids(&job_contexts_shared, workflow_id)
+                }
+            };
 
-                load_workflow_runs(LoadRunsParams {
-                    client: client_shared.clone(),
-                    owner: owner_string.clone(),
-                    repo: repo_string.clone(),
-                    repo_model: repo_model_shared.clone(),
-                    workflow_id,
-                    workflow_name: workflow_display_shared.clone(),
-                    runs_box: runs_box_shared.clone(),
-                    parent_window: parent_window_shared.clone(),
-                    status_badge: Some(status_badge_shared.clone()),
-                    expander: expander.clone(),
-                    cache: cache_shared.clone(),
-                    toast_overlay: toast_overlay_shared.clone(),
-                    bypass_cache: true,
-                    job_contexts: job_contexts_shared.clone(),
-                    expanded_run_ids: preserved_runs,
-                    workflows_with_active: workflows_with_active_shared.clone(),
-                    background: false,
-                    run_digests: run_digests_shared.clone(),
-                    notification_manager: notification_manager_shared.clone(),
-                    preferences_manager: preferences_manager_shared.clone(),
-                });
-            }
+            load_workflow_runs(LoadRunsParams {
+                client: client_shared.clone(),
+                owner: owner_string.clone(),
+                repo: repo_string.clone(),
+                repo_model: repo_model_shared.clone(),
+                workflow_id,
+                workflow_name: workflow_display_shared.clone(),
+                runs_box: runs_box_shared.clone(),
+                parent_window: parent_window_shared.clone(),
+                status_badge: Some(status_badge_shared.clone()),
+                expander: expander.clone(),
+                cache: cache_shared.clone(),
+                toast_overlay: toast_overlay_shared.clone(),
+                bypass_cache: true,
+                job_contexts: job_contexts_shared.clone(),
+                expanded_run_ids: preserved_runs,
+                workflows_with_active: workflows_with_active_shared.clone(),
+                background: false,
+                run_digests: run_digests_shared.clone(),
+                notification_manager: notification_manager_shared.clone(),
+                preferences_manager: preferences_manager_shared.clone(),
+            });
         }
     }
 

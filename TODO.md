@@ -46,6 +46,7 @@ All macOS features are now implemented in the GTK client, including the final wo
 ## Recent Updates (Current Session - Continued)
 
 - **Detail view lint cleanup** [🔄] — Consolidated repo detail dependencies into context structs (`RepoDetailDeps`, `WorkflowListContext`, `RunRowContext`) and rewrote the run row builder so clippy's `too_many_arguments` lint can be removed without losing functionality.
+- **Clippy pass (detail view)** [🔄] — Refined workflow/run helper APIs into context objects (`WorkflowRowContext`, `RunErrorContext`) and collapsed nested conditionals so `cargo clippy -- -D warnings` now passes for the detail pane refactor work.
 - **Log save defaults** [✅] — Job log downloads now suggest filenames like `CI #4 - Lint.log`, sanitizing unsafe characters while keeping the run and job titles.
 - **Rust 2024 migration** [✅] — Updated the codebase for the Rust 2024 edition, addressed temporary drop-order lints, refreshed GTK/adwaita/tokio stacks, and verified builds/tests with the new toolchain.
 - **Preferences persistence** [✅] — Restore the main window size and last-selected repository from saved preferences and keep them updated on close.
