@@ -1,6 +1,6 @@
 use super::super::formatting::format_run_title;
-use crate::api::models::WorkflowRun;
 use crate::api::GitHubClient;
+use crate::api::models::WorkflowRun;
 use crate::cache::DataCache;
 use crate::ui::utils::MainContextChannelExt;
 use gtk4::prelude::*;
@@ -162,7 +162,9 @@ fn create_rerun_button(
 
             crate::runtime_handle().spawn(async move {
                 let client_guard = client.lock().clone();
-                match client_guard.rerun_workflow(&owner, &repo, run_id).await {
+                let rerun_result = client_guard.rerun_workflow(&owner, &repo, run_id).await;
+
+                match rerun_result {
                     Ok(_) => {
                         let cache_key = format!("{}/{}", owner_for_cache, repo_for_cache);
                         cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
@@ -262,7 +264,9 @@ fn create_rerun_failed_button(
 
             crate::runtime_handle().spawn(async move {
                 let client_guard = client.lock().clone();
-                match client_guard.rerun_failed_jobs(&owner, &repo, run_id).await {
+                let rerun_result = client_guard.rerun_failed_jobs(&owner, &repo, run_id).await;
+
+                match rerun_result {
                     Ok(_) => {
                         let cache_key = format!("{}/{}", owner_for_cache, repo_for_cache);
                         cache.store_runs(Vec::new(), &cache_key, workflow_id).await;
@@ -362,7 +366,9 @@ fn create_cancel_button(
 
             crate::runtime_handle().spawn(async move {
                 let client_guard = client.lock().clone();
-                match client_guard.cancel_run(&owner, &repo, run_id).await {
+                let cancel_result = client_guard.cancel_run(&owner, &repo, run_id).await;
+
+                match cancel_result {
                     Ok(_) => {
                         let cache_key = format!("{}/{}", owner_for_cache, repo_for_cache);
                         cache.store_runs(Vec::new(), &cache_key, workflow_id).await;

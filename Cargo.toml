@@ -1,20 +1,21 @@
 [package]
 name = "actioneer"
 version = "1.0.0"
-edition = "2021"
+edition = "2024"
 authors = ["Sergey Armodin"]
 description = "GitHub Actions client for Linux (GNOME)"
 license = "MIT"
 
 [dependencies]
 # GTK4 and libadwaita
-gtk4 = { version = "0.9", package = "gtk4" }
-libadwaita = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
-gio = "0.20"
+
+gtk4 = { version = "0.10", package = "gtk4" }
+libadwaita = { version = "0.8", package = "libadwaita", features = ["v1_5"] }
+gio = "0.21"
 
 # HTTP client and async runtime
 reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1.40", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
 futures = "0.3"
 
 # Serialization
@@ -25,10 +26,10 @@ serde_json = "1.0"
 keyring = { version = "3.6", default-features = false, features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 # DBus and portals
-zbus = "4.4"
+zbus = "5.12"
 
 # Open URLs
-open = "5.0"
+open = "5.3"
 
 # Logging
 tracing = "0.1"
@@ -36,10 +37,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Utilities
-dirs = "5.0"
+dirs = "6.0"
 dotenvy = "0.15"
 chrono = { version = "0.4", features = ["clock"] }
 parking_lot = "0.12"

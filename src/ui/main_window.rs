@@ -1,9 +1,9 @@
+use super::WelcomeScreen;
 use super::detail_placeholder::schedule_status_page_update;
 use super::detail_view::RepoDetailPane;
 use super::sidebar::{
-    find_label_by_name, rebuild_repo_list, row_matches_query, RepoListRenderContext,
+    RepoListRenderContext, find_label_by_name, rebuild_repo_list, row_matches_query,
 };
-use super::WelcomeScreen;
 use crate::api::models::{RateLimitInfo, Repo};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
@@ -13,9 +13,9 @@ use crate::preferences::{Preferences, PreferencesManager};
 use crate::storage::TokenStorage;
 use crate::ui::auth_window::AuthWindow;
 use crate::ui::preferences_window::PreferencesWindow;
-use crate::ui::utils::{update_rate_limit_label, MainContextChannelExt};
-use gio::prelude::*;
+use crate::ui::utils::{MainContextChannelExt, update_rate_limit_label};
 use gio::Menu;
+use gio::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
 use libadwaita as adw;
@@ -303,10 +303,11 @@ impl MainWindow {
         });
 
         let window_for_quit = self.window.clone();
-        welcome_screen.connect_quit(move || {
-            if let Some(app) = window_for_quit.application() {
+        welcome_screen.connect_quit(move || match window_for_quit.application() {
+            Some(app) => {
                 app.quit();
-            } else {
+            }
+            _ => {
                 window_for_quit.close();
             }
         });
@@ -430,14 +431,15 @@ impl MainWindow {
 
             if response == gtk::ResponseType::Yes {
                 match TokenStorage::new() {
-                    Ok(storage) => {
-                        if let Err(err) = storage.delete_token() {
+                    Ok(storage) => match storage.delete_token() {
+                        Err(err) => {
                             error!("Failed to delete token: {}", err);
-                        } else {
+                        }
+                        _ => {
                             info!("Signed out successfully");
                             this.enter_signed_out_state();
                         }
-                    }
+                    },
                     Err(err) => {
                         error!("Failed to access token storage: {}", err);
                     }
@@ -495,7 +497,9 @@ impl MainWindow {
                         }
                     }
                     Err(_) => {
-                        info!("Failed to retrieve token despite presence flag; showing welcome screen");
+                        info!(
+                            "Failed to retrieve token despite presence flag; showing welcome screen"
+                        );
                         self.enter_signed_out_state();
                     }
                 }
@@ -647,7 +651,8 @@ impl MainWindow {
                 }
             };
 
-            match storage.get_token() {
+            let token_result = storage.get_token();
+            match token_result {
                 Ok(token) => {
                     let needs_client = this.client.lock().is_none();
                     if needs_client {
@@ -1212,11 +1217,14 @@ impl MainWindow {
             } else {
                 info!("✅ Hiding header loading spinner");
                 // Remove spinner if it exists
-                if let Some(spinner) = spinner_ref.borrow_mut().take() {
-                    info!("Removing spinner from header");
-                    header.remove(&spinner);
-                } else {
-                    warn!("No header spinner found to remove!");
+                match spinner_ref.borrow_mut().take() {
+                    Some(spinner) => {
+                        info!("Removing spinner from header");
+                        header.remove(&spinner);
+                    }
+                    _ => {
+                        warn!("No header spinner found to remove!");
+                    }
                 }
 
                 // Show refresh button

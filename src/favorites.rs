@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::{RwLock, watch};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct FavoritesData {

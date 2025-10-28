@@ -1,5 +1,5 @@
-use crate::api::models::Repo;
 use crate::api::GitHubClient;
+use crate::api::models::Repo;
 use crate::cache::DataCache;
 use gtk4::{self as gtk};
 use parking_lot::Mutex;

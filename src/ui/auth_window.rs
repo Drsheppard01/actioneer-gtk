@@ -1,5 +1,5 @@
 use crate::auth::device::{
-    poll_device_token, start_device_flow, AccessToken, AuthError, DeviceFlowInfo,
+    AccessToken, AuthError, DeviceFlowInfo, poll_device_token, start_device_flow,
 };
 use crate::config::Config;
 use crate::runtime_handle;
@@ -260,9 +260,11 @@ impl AuthWindow {
                         tokio::time::sleep(interval).await;
                         attempts += 1;
 
-                        match poll_device_token(Config::github_client_id(), &poll_info.device_code)
-                            .await
-                        {
+                        let poll_result =
+                            poll_device_token(Config::github_client_id(), &poll_info.device_code)
+                                .await;
+
+                        match poll_result {
                             Ok(token) => {
                                 info!("Authentication successful");
                                 if sender_for_polling

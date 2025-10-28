@@ -329,9 +329,13 @@ impl RunJobsWindow {
 
 fn update_jobs_list(list_box: &gtk::ListBox, jobs: &[Job]) {
     // Clear existing items
-    while let Some(child) = list_box.first_child() {
-        list_box.remove(&child);
-    }
+        loop {
+            let child_opt = list_box.first_child();
+            let Some(child) = child_opt else {
+                break;
+            };
+            list_box.remove(&child);
+        }
 
     // Add new items
     for job in jobs {

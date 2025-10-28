@@ -2,10 +2,10 @@ use super::super::context::JobContextMap;
 use super::super::formatting::{
     format_run_subtitle, format_run_title, get_run_status_class, get_run_status_icon,
 };
-use super::super::jobs::{load_run_jobs, LoadJobsParams};
+use super::super::jobs::{LoadJobsParams, load_run_jobs};
 use super::actions::create_actions_box;
-use crate::api::models::{Repo, WorkflowRun};
 use crate::api::GitHubClient;
+use crate::api::models::{Repo, WorkflowRun};
 use crate::cache::DataCache;
 use gtk4::prelude::*;
 use gtk4::{self as gtk, glib};
@@ -128,13 +128,12 @@ fn build_expander(run: &WorkflowRun, run_title: &str) -> (gtk::Expander, gtk::Bo
 
     let subtitle_label_weak = subtitle_label.downgrade();
     let run_for_timer = run.clone();
-    glib::timeout_add_seconds_local(60, move || {
-        if let Some(label) = subtitle_label_weak.upgrade() {
+    glib::timeout_add_seconds_local(60, move || match subtitle_label_weak.upgrade() {
+        Some(label) => {
             label.set_text(&format_run_subtitle(&run_for_timer));
             glib::ControlFlow::Continue
-        } else {
-            glib::ControlFlow::Break
         }
+        _ => glib::ControlFlow::Break,
     });
 
     label_box.append(&text_box);

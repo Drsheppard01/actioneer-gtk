@@ -161,7 +161,11 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
     } = params;
 
     if !background {
-        while let Some(child) = jobs_box.first_child() {
+        loop {
+            let child_opt = jobs_box.first_child();
+            let Some(child) = child_opt else {
+                break;
+            };
             jobs_box.remove(&child);
         }
 
@@ -189,7 +193,11 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
     receiver.attach(None, move |result| {
         let should_clear = matches!(&result, Ok(_)) || !background;
         if should_clear {
-            while let Some(child) = jobs_box.first_child() {
+            loop {
+                let child_opt = jobs_box.first_child();
+                let Some(child) = child_opt else {
+                    break;
+                };
                 jobs_box.remove(&child);
             }
         }
@@ -302,7 +310,11 @@ pub(super) fn load_run_jobs(params: LoadJobsParams) {
                     let run_title_retry = run_title.clone();
 
                     retry_button.connect_clicked(move |_| {
-                        while let Some(child) = jobs_box_retry.first_child() {
+                        loop {
+                            let child_opt = jobs_box_retry.first_child();
+                            let Some(child) = child_opt else {
+                                break;
+                            };
                             jobs_box_retry.remove(&child);
                         }
                         load_run_jobs(LoadJobsParams {

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::{RwLock, watch};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preferences {

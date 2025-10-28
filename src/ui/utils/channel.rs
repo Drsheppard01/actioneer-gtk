@@ -1,5 +1,5 @@
-use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
+use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use gtk4::glib::{ControlFlow, MainContext, Priority};
 
 pub struct Sender<T: Send + 'static>(UnboundedSender<T>);
@@ -36,7 +36,12 @@ impl<T: Send + 'static> Receiver<T> {
     {
         let mut receiver = self.0;
         MainContext::default().spawn_local(async move {
-            while let Some(msg) = receiver.next().await {
+            loop {
+                let next_item = receiver.next().await;
+                let Some(msg) = next_item else {
+                    break;
+                };
+
                 if matches!(func(msg), ControlFlow::Break) {
                     break;
                 }

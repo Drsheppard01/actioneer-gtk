@@ -33,7 +33,11 @@ pub fn rebuild_repo_list(list_box: gtk::ListBox, context: RepoListRenderContext)
         selected_repo_id,
     } = context;
 
-    while let Some(child) = list_box.first_child() {
+    loop {
+        let child_opt = list_box.first_child();
+        let Some(child) = child_opt else {
+            break;
+        };
         list_box.remove(&child);
     }
 
@@ -437,7 +441,8 @@ pub async fn gather_workflow_status_counts(
     let mut failed_count = 0;
 
     for workflow in workflows.into_iter().take(MAX_WORKFLOWS_PER_REPO) {
-        match client.list_runs(owner, repo, workflow.id).await {
+        let runs_result = client.list_runs(owner, repo, workflow.id).await;
+        match runs_result {
             Ok(runs) => {
                 if let Some(latest) = runs.first() {
                     if is_run_active(latest) {

@@ -1,7 +1,7 @@
-use super::context::{take_job_context_run_ids, JobContextMap};
-use super::runs::{load_workflow_runs, LoadRunsParams, RunDigest};
-use crate::api::models::{Repo, Workflow};
+use super::context::{JobContextMap, take_job_context_run_ids};
+use super::runs::{LoadRunsParams, RunDigest, load_workflow_runs};
 use crate::api::GitHubClient;
+use crate::api::models::{Repo, Workflow};
 use crate::cache::DataCache;
 use crate::notifications::NotificationManager;
 use crate::preferences::PreferencesManager;
@@ -313,8 +313,13 @@ pub(crate) fn create_workflow_expander_row(
 
         crate::runtime_handle().spawn(async move {
             let client_guard = client_for_branches.lock().clone();
-            if let Ok(branches) = client_guard.list_branches(&owner_for_branches, &repo_for_branches).await {
-                let branch_names: Vec<String> = branches.iter().map(|b| b.name.clone()).collect();
+            let branch_result = client_guard
+                .list_branches(&owner_for_branches, &repo_for_branches)
+                .await;
+
+            if let Ok(branches) = branch_result {
+                let branch_names: Vec<String> =
+                    branches.iter().map(|b| b.name.clone()).collect();
                 let _ = branch_sender.send(branch_names);
             }
         });
@@ -356,12 +361,17 @@ pub(crate) fn create_workflow_expander_row(
 
                 crate::runtime_handle().spawn(async move {
                     let client_guard = client.lock().clone();
-                    match client_guard.dispatch_workflow(&owner, &repo, &workflow_id_str, &branch, None).await {
+                    let dispatch_result = client_guard
+                        .dispatch_workflow(&owner, &repo, &workflow_id_str, &branch, None)
+                        .await;
+
+                    match dispatch_result {
                         Ok(_) => {
                             let _ = sender.send(Ok(branch));
                         }
                         Err(e) => {
-                            let _ = sender.send(Err(format!("Failed to trigger workflow: {}", e)));
+                            let _ = sender
+                                .send(Err(format!("Failed to trigger workflow: {}", e)));
                         }
                     }
                 });
@@ -421,7 +431,11 @@ pub(crate) fn create_workflow_expander_row(
                                 let workflows_with_active = workflows_with_active_for_reload.clone();
                                 if expander.is_expanded() {
                                     info!("Reloading runs after workflow trigger");
-                                    while let Some(child) = runs_box.first_child() {
+                                    loop {
+                                        let child_opt = runs_box.first_child();
+                                        let Some(child) = child_opt else {
+                                            break;
+                                        };
                                         runs_box.remove(&child);
                                     }
                                     let spinner = gtk::Spinner::new();

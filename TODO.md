@@ -35,6 +35,7 @@ All macOS features are now implemented in the GTK client, including the final wo
 ---
 
 ## Current Focus (Session 5 Bugfixes)
+- [✅] Migrate project to Rust 2024 edition and refresh dependency stack
 - [✅] Show a friendly message when job logs are not yet available (GitHub 404)
 - [✅] Keep the “Showing X job(s)” label visible after auto-refresh updates
 - [ ] Re-audit recent changes for regressions and add tests where needed
@@ -45,6 +46,7 @@ All macOS features are now implemented in the GTK client, including the final wo
 ## Recent Updates (Current Session - Continued)
 
 - **Log save defaults** [✅] — Job log downloads now suggest filenames like `CI #4 - Lint.log`, sanitizing unsafe characters while keeping the run and job titles.
+- **Rust 2024 migration** [✅] — Updated the codebase for the Rust 2024 edition, addressed temporary drop-order lints, refreshed GTK/adwaita/tokio stacks, and verified builds/tests with the new toolchain.
 - **Preferences persistence** [✅] — Restore the main window size and last-selected repository from saved preferences and keep them updated on close.
 - **Sign-out cache reset** [✅] — Clear the shared `DataCache` during sign-out so repo and workflow panes always start fresh for the next session.
 - **Clippy cleanup prep** [🔄] — Began auditing suppressed lints and planning fixes so we can re-enable strict clippy checks without failures.

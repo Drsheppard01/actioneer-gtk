@@ -178,15 +178,16 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
                                     "Sending workflow completion notification(s)"
                                 );
                                 for (run_title, status, conclusion) in notification_requests {
-                                    if let Err(err) = manager
+                                    let notify_result = manager
                                         .notify_workflow_completed(
                                             &workflow_label,
                                             &run_title,
                                             &status,
                                             conclusion.as_deref(),
                                         )
-                                        .await
-                                    {
+                                        .await;
+
+                                    if let Err(err) = notify_result {
                                         warn!(
                                             "Failed to send workflow completion notification: {}",
                                             err
@@ -309,7 +310,11 @@ pub(crate) fn load_workflow_runs(params: LoadRunsParams) {
 }
 
 fn clear_runs_box(runs_box: &gtk::Box) {
-    while let Some(child) = runs_box.first_child() {
+    loop {
+        let child_opt = runs_box.first_child();
+        let Some(child) = child_opt else {
+            break;
+        };
         runs_box.remove(&child);
     }
 }

@@ -291,16 +291,20 @@ impl JobLogsWindow {
                 return;
             }
 
-            if let Some(display) = gdk::Display::default() {
-                let clipboard = display.clipboard();
-                clipboard.set_text(&text);
-                let toast = adw::Toast::new("Logs copied to clipboard");
-                toast.set_timeout(3);
-                overlay.add_toast(toast);
-            } else {
-                let toast = adw::Toast::new("Clipboard unavailable on this system");
-                toast.set_timeout(5);
-                overlay.add_toast(toast);
+            let display = gdk::Display::default();
+            match display {
+                Some(display) => {
+                    let clipboard = display.clipboard();
+                    clipboard.set_text(&text);
+                    let toast = adw::Toast::new("Logs copied to clipboard");
+                    toast.set_timeout(3);
+                    overlay.add_toast(toast);
+                }
+                None => {
+                    let toast = adw::Toast::new("Clipboard unavailable on this system");
+                    toast.set_timeout(5);
+                    overlay.add_toast(toast);
+                }
             }
         });
     }
@@ -347,43 +351,48 @@ impl JobLogsWindow {
                     return;
                 }
 
-                if let Some(file) = dialog.file() {
-                    if let Some(path) = file.path() {
-                        let text_to_write = text.clone();
-                        let (sender, receiver) = glib::MainContext::default()
-                            .channel::<Result<(), String>>(glib::Priority::default());
-                        let overlay_for_result = overlay_for_dialog.clone();
+                match dialog.file() {
+                    Some(file) => {
+                        if let Some(path) = file.path() {
+                            let text_to_write = text.clone();
+                            let (sender, receiver) = glib::MainContext::default()
+                                .channel::<Result<(), String>>(glib::Priority::default());
+                            let overlay_for_result = overlay_for_dialog.clone();
 
-                        receiver.attach(None, move |message| {
-                            match message {
-                                Ok(()) => {
-                                    let toast = adw::Toast::new("Logs saved");
-                                    toast.set_timeout(3);
-                                    overlay_for_result.add_toast(toast);
+                            receiver.attach(None, move |message| {
+                                match message {
+                                    Ok(()) => {
+                                        let toast = adw::Toast::new("Logs saved");
+                                        toast.set_timeout(3);
+                                        overlay_for_result.add_toast(toast);
+                                    }
+                                    Err(err) => {
+                                        let toast = adw::Toast::new(&format!(
+                                            "Failed to save logs: {}",
+                                            err
+                                        ));
+                                        toast.set_timeout(5);
+                                        overlay_for_result.add_toast(toast);
+                                    }
                                 }
-                                Err(err) => {
-                                    let toast =
-                                        adw::Toast::new(&format!("Failed to save logs: {}", err));
-                                    toast.set_timeout(5);
-                                    overlay_for_result.add_toast(toast);
-                                }
-                            }
-                            glib::ControlFlow::Break
-                        });
+                                glib::ControlFlow::Break
+                            });
 
-                        crate::runtime_handle().spawn_blocking(move || {
-                            let result = std::fs::write(&path, text_to_write);
-                            let _ = sender.send(result.map_err(|e| e.to_string()));
-                        });
-                    } else {
-                        let toast = adw::Toast::new("Unable to determine save location");
+                            crate::runtime_handle().spawn_blocking(move || {
+                                let result = std::fs::write(&path, text_to_write);
+                                let _ = sender.send(result.map_err(|e| e.to_string()));
+                            });
+                        } else {
+                            let toast = adw::Toast::new("Unable to determine save location");
+                            toast.set_timeout(5);
+                            overlay_for_dialog.add_toast(toast);
+                        }
+                    }
+                    _ => {
+                        let toast = adw::Toast::new("No file selected");
                         toast.set_timeout(5);
                         overlay_for_dialog.add_toast(toast);
                     }
-                } else {
-                    let toast = adw::Toast::new("No file selected");
-                    toast.set_timeout(5);
-                    overlay_for_dialog.add_toast(toast);
                 }
 
                 dialog.destroy();

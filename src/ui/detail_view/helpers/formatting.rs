@@ -121,7 +121,11 @@ pub(crate) fn get_job_status_class(job: &Job) -> &'static str {
 }
 
 pub(crate) fn update_job_summary_badges(badges_box: &gtk::Box, jobs: &[Job]) {
-    while let Some(child) = badges_box.first_child() {
+    loop {
+        let child_opt = badges_box.first_child();
+        let Some(child) = child_opt else {
+            break;
+        };
         badges_box.remove(&child);
     }
 
