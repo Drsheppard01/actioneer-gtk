@@ -375,8 +375,17 @@ mod tests {
         let parent = adw::ApplicationWindow::builder().build();
         let overlay = adw::ToastOverlay::new();
 
-        let box_widget =
-            create_actions_box(&run, &client, "owner", "repo", &parent, &cache, 1, &overlay);
+        let context = RunActionContext {
+            client: client.clone(),
+            owner: "owner".to_string(),
+            repo: "repo".to_string(),
+            parent_window: parent.clone(),
+            cache: cache.clone(),
+            workflow_id: 1,
+            toast_overlay: overlay.clone(),
+        };
+
+        let box_widget = create_actions_box(&run, &context);
 
         let mut child = box_widget.first_child();
         let mut button_count = 0;
