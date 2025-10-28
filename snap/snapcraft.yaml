@@ -1,0 +1,58 @@
+name: actioneer
+base: core24
+version: '1.0.0'
+title: Actioneer
+summary: GitHub Actions desktop client for GNOME
+description: |
+  Actioneer is a native GTK4/libadwaita application that lets you browse GitHub
+  repositories, inspect workflow runs, check job logs, and trigger background
+  refreshes without leaving your desktop and integrates with GNOME notifications.
+grade: stable
+confinement: strict
+license: MIT
+contact: https://github.com/makoni/actioneer-gtk/issues
+issues: https://github.com/makoni/actioneer-gtk/issues
+source-code: https://github.com/makoni/actioneer-gtk
+website: https://github.com/makoni/actioneer-gtk
+
+apps:
+  actioneer:
+    command: bin/actioneer
+    extensions:
+      - gnome
+    plugs:
+      - network
+      - network-bind
+      - gsettings
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - pulseaudio
+    slots:
+      - session-dbus-actioneer
+
+parts:
+  actioneer:
+    plugin: rust
+    source: .
+    rust-channel: stable
+    build-packages:
+      - libadwaita-1-dev
+      - libgtk-4-dev
+      - libssl-dev
+      - pkg-config
+    stage-packages:
+      - libadwaita-1-0
+      - libgtk-4-1
+      - libssl3
+    override-build: |
+      snapcraftctl build
+      install -Dm644 data/me.spaceinbox.actioneer.desktop "$SNAPCRAFT_PART_INSTALL/meta/gui/actioneer.desktop"
+      install -Dm644 icons/icons/hicolor/scalable/apps/actioneer.svg "$SNAPCRAFT_PART_INSTALL/meta/gui/actioneer.svg"
+
+slots:
+  session-dbus-actioneer:
+    interface: dbus
+    bus: session
+    name: me.spaceinbox.actioneer

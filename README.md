@@ -1,6 +1,116 @@
 # Actioneer for Linux
 
-Native GNOME application for managing GitHub Actions, built with Rust, GTK4, and libadwaita.
+Actioneer is a native GNOME desktop client for GitHub Actions. It pairs a GTK4/libadwaita interface with a Tokio-powered GitHub API client so you can browse repositories, inspect workflow runs, watch job logs, and receive desktop notifications without leaving your desktop environment.
+
+## Feature Highlights
+- Sign in with GitHub via OAuth device flow and securely store tokens in the system keyring
+- Browse repositories with live search, favorites, cached state, and adaptive sidebar layout
+- Inspect workflows, runs, jobs, and real-time job logs with status indicators and rich metadata
+- Trigger background refreshes with automatic rate-limit handling and notification support
+- Configure preferences (window state, refresh cadence, favorites) with a dedicated preferences window
+- Works on both Wayland and X11 thanks to libadwaita’s adaptive widgets and GTK4 renderers
+
+## Installation
+
+### Snap (local build)
+Snapcraft metadata ships with the repository. Build and install an unsigned snap locally:
+
+```bash
+snapcraft
+sudo snap install --dangerous actioneer_*.snap
+```
+
+Once the store listing is published you will be able to install with:
+
+```bash
+sudo snap install actioneer
+```
+
+### Build From Source
+
+Install the build dependencies first:
+
+**Ubuntu / Debian**
+
+```bash
+sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config
+```
+
+**Fedora**
+
+```bash
+sudo dnf install gtk4-devel libadwaita-devel pkg-config
+```
+
+Then build and run in release mode:
+
+```bash
+cargo build --release
+cargo run --release
+```
+
+## Configuration
+
+Actioneer ships with default OAuth credentials for developer testing. To use your own GitHub OAuth application:
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+2. Edit `.env` with your client ID and secret:
+   ```bash
+   GITHUB_CLIENT_ID=your_client_id
+   GITHUB_CLIENT_SECRET=your_client_secret
+   ```
+3. Run the app with your credentials:
+   ```bash
+   cargo run
+   ```
+
+Additional configuration details live in `CONFIGURATION_GUIDE.md`.
+
+## Desktop Integration (from source builds)
+
+Install the desktop entry and icons so Actioneer shows up in GNOME Shell search:
+
+```bash
+mkdir -p ~/.local/share/applications ~/.local/share/icons
+cp data/me.spaceinbox.actioneer.desktop ~/.local/share/applications/
+cp -r icons/icons/hicolor ~/.local/share/icons/
+gtk-update-icon-cache ~/.local/share/icons/hicolor
+```
+
+Log out/in or restart GNOME Shell to refresh the cache. For system-wide installs, copy the files to `/usr/share/applications` and `/usr/share/icons/hicolor` instead.
+
+## Development Workflow
+
+```bash
+cargo fmt                # Format code
+cargo clippy -- -D warnings  # Lint with zero warnings
+cargo test               # Run unit tests
+cargo test -- --ignored  # Run UI integration tests (requires a display)
+```
+
+See `docs/` for API, caching, and UI guidelines. The project enforces zero warnings in `cargo build` and `cargo clippy`.
+
+## Packaging With Snapcraft
+
+The `snap/snapcraft.yaml` manifest builds a strictly confined snap using the GNOME extension. During the build we copy the existing desktop entry and SVG icon so the snap integrates with desktop menus automatically. After updating the manifest you can test locally with `snapcraft pack` or push to the Snap Store once the snap is registered.
+
+## Architecture Overview
+
+- `src/main.rs` – Application entry point and Tokio runtime bootstrap
+- `src/api/` – GitHub API client, HTTP helpers, and typed models
+- `src/auth/` – OAuth device flow implementation
+- `src/storage/` – Secure keyring-backed token storage
+- `src/cache.rs` – In-memory cache with ETag-aware helpers
+- `src/preferences.rs` / `src/favorites.rs` – Persistence for user state
+- `src/ui/` – GTK4/libadwaita UI components (main window, detail panes, dialogs)
+- `tests/` – Logic and UI integration tests
+
+## License
+
+Actioneer is available under the [MIT License](LICENSE).
 
 ## Prerequisites
 
