@@ -51,19 +51,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build project and create snap
+      - name: Build project and create snap (build -> prime -> pack)
         run: |
           echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
           cargo build --workspace --release --verbose
-          # Build the snap locally for the current runner architecture
-          snapcraft --destructive-mode --destructive-unpack
+          # Build parts, assemble prime, and pack into a .snap explicitly.
+          # Use destructive-mode on CI runners to build in the host.
+          snapcraft --destructive-mode build
+          snapcraft --destructive-mode prime
+          mkdir -p snap-output
+          snapcraft --destructive-mode pack prime -o snap-output
 
       - name: Find generated snap
         id: find-snap
         run: |
-          # try to locate any built .snap in the workspace (search recursively)
+          # Look specifically in snap-output/ where pack writes the .snap
           set -e
-          SNAP_FILE=$(find . -type f -name "*.snap" | head -n1 || true)
+          SNAP_FILE=$(find snap-output -type f -name "*.snap" | head -n1 || true)
+          if [ -z "$SNAP_FILE" ]; then
+            # Fallback: search the repo for any .snap
+            SNAP_FILE=$(find . -type f -name "*.snap" | head -n1 || true)
+          fi
           if [ -z "$SNAP_FILE" ]; then
             echo "No .snap produced in the workspace."
             echo "snap_file=" >> $GITHUB_OUTPUT
@@ -72,21 +80,25 @@ jobs:
           echo "Found snap: $SNAP_FILE"
           echo "snap_file=$SNAP_FILE" >> $GITHUB_OUTPUT
 
-      - name: Login to Snapcraft (credential-file only)
+      - name: Prepare Snapcraft credentials (via SNAPCRAFT_STORE_CREDENTIALS)
         if: steps.find-snap.outputs.snap_file != ''
         env:
-          SNAPCRAFT_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
         run: |
-          # Prefer a pre-exported credential file (most reliable for non-interactive CI).
-          if [ -n "$SNAPCRAFT_CREDENTIALS" ]; then
-            echo "$SNAPCRAFT_CREDENTIALS" > $HOME/snapcraft.credentials
-            snapcraft login --with $HOME/snapcraft.credentials || true
-          else
-            echo "SNAPCRAFT_CREDENTIALS secret not provided; skipping snapcraft login. To enable upload, set the SNAPCRAFT_CREDENTIALS secret (exported via 'snapcraft export-login')."
+          # The official docs recommend providing the exported credentials file contents
+          # in the SNAPCRAFT_STORE_CREDENTIALS environment variable. That avoids writing a file.
+          if [ -z "$SNAPCRAFT_STORE_CREDENTIALS" ]; then
+            echo "SNAPCRAFT_CREDENTIALS secret not provided; upload steps will be skipped."
+            exit 0
           fi
+          echo "Verifying snapcraft credentials..."
+          # whoami will succeed if the credentials are valid in the env
+          snapcraft whoami || (echo "snapcraft whoami failed; credentials may be invalid" && exit 1)
 
       - name: Upload snap to Snap Store
-        if: steps.find-snap.outputs.snap_file != ''
+        if: steps.find-snap.outputs.snap_file != '' && env.SNAPCRAFT_STORE_CREDENTIALS != ''
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
         run: |
           SNAP_FILE=${{ steps.find-snap.outputs.snap_file }}
           if [ -z "$SNAP_FILE" ]; then
@@ -94,8 +106,7 @@ jobs:
             exit 0
           fi
           echo "Uploading $SNAP_FILE to snapcraft..."
-          # Push to the Snap Store and release to edge channel by default. Adjust channel as needed.
-          # Prefer 'snapcraft upload' (newer) and fallback to 'snapcraft push'.
+          # snapcraft will use SNAPCRAFT_STORE_CREDENTIALS to authenticate non-interactively
           snapcraft upload "$SNAP_FILE" --release edge || snapcraft push "$SNAP_FILE" --release edge
 
       - name: Upload snap as workflow artifact
