@@ -76,41 +76,18 @@ jobs:
           echo "Found snap: $SNAP_FILE"
           echo "snap_file=$SNAP_FILE" >> $GITHUB_OUTPUT
 
-      - name: Login to Snapcraft (supports credential file or expect fallback)
+      - name: Login to Snapcraft (credential-file only)
         if: steps.find-snap.outputs.snap_file != ''
         env:
-          SNAPCRAFT_EMAIL: ${{ secrets.SNAPCRAFT_EMAIL }}
-          SNAPCRAFT_PASSWORD: ${{ secrets.SNAPCRAFT_PASSWORD }}
           SNAPCRAFT_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
         run: |
-          # Prefer a pre-exported credential file (safe to store as secret). If present, write it and import.
+          # Prefer a pre-exported credential file (most reliable for non-interactive CI).
           if [ -n "$SNAPCRAFT_CREDENTIALS" ]; then
             echo "$SNAPCRAFT_CREDENTIALS" > $HOME/snapcraft.credentials
             snapcraft login --with $HOME/snapcraft.credentials || true
-            exit 0
+          else
+            echo "SNAPCRAFT_CREDENTIALS secret not provided; skipping snapcraft login. To enable upload, set the SNAPCRAFT_CREDENTIALS secret (exported via 'snapcraft export-login')."
           fi
-
-          # Otherwise try a non-interactive login using expect to feed prompts.
-          if [ -z "$SNAPCRAFT_EMAIL" ] || [ -z "$SNAPCRAFT_PASSWORD" ]; then
-            echo "SNAPCRAFT_EMAIL or SNAPCRAFT_PASSWORD not set; cannot login"
-            exit 1
-          fi
-          sudo apt-get update
-          sudo apt-get install -y expect
-          expect <<'EOF'
-          set timeout -1
-          spawn snapcraft login
-          expect {
-            -re "[Ee]mail:" {
-              send "$env(SNAPCRAFT_EMAIL)\r"
-              exp_continue
-            }
-            -re "[Pp]assword:" {
-              send "$env(SNAPCRAFT_PASSWORD)\r"
-            }
-          }
-          expect eof
-EOF
 
       - name: Upload snap to Snap Store
         if: steps.find-snap.outputs.snap_file != ''
