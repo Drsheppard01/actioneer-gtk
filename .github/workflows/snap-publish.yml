@@ -9,10 +9,14 @@ env:
 jobs:
   build-and-publish:
     name: Build and publish snap (amd64 & arm64)
-    runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runs-on: ubuntu-latest
+          - arch: arm64
+            # Use the arm64 hosted runner label. Adjust this label if your organization uses a different one.
+            runs-on: ubuntu-24.04-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -42,25 +46,16 @@ jobs:
             target
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.arch }}
+          key: ${{ matrix.runs-on }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.arch }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build for amd64 locally
-        if: matrix.arch == 'amd64'
+      - name: Build project and create snap
         run: |
+          echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
           cargo build --workspace --release --verbose
-          # Build the snap locally for the current arch
+          # Build the snap locally for the current runner architecture
           snapcraft --destructive-mode --destructive-unpack
-
-      - name: Trigger remote build for arm64
-        if: matrix.arch == 'arm64'
-        run: |
-          # Use snapcraft remote-build to build for arm64 (Launchpad)
-          # This will queue a build and download the resulting snap when finished.
-          snapcraft remote-build --arch=arm64 . || true
-          # remote-build may print the resulting .snap path; try to find it
-          ls -la || true
 
       - name: Find generated snap
         id: find-snap
