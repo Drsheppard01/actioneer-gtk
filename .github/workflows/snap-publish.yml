@@ -17,10 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system packages
+      - name: Install system packages (GTK & build deps)
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libglib2.0-dev
+          # Match the CI environment: GTK4 and libadwaita dev libs are required to build the native parts
+          sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev
 
       - name: Install snapcraft
         run: |
@@ -28,10 +29,11 @@ jobs:
           sudo apt-get install -y snapd
           sudo snap install snapcraft --classic
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+          profile: minimal
 
       - name: Cache cargo (target + registry)
         uses: actions/cache@v4
@@ -63,9 +65,9 @@ jobs:
       - name: Find generated snap
         id: find-snap
         run: |
-          # try to locate any built .snap in the workspace
+          # try to locate any built .snap in the workspace (search recursively)
           set -e
-          SNAP_FILE=$(find . -maxdepth 3 -type f -name "*.snap" | head -n1 || true)
+          SNAP_FILE=$(find . -type f -name "*.snap" | head -n1 || true)
           if [ -z "$SNAP_FILE" ]; then
             echo "No .snap produced in the workspace."
             echo "snap_file=" >> $GITHUB_OUTPUT
@@ -74,26 +76,44 @@ jobs:
           echo "Found snap: $SNAP_FILE"
           echo "snap_file=$SNAP_FILE" >> $GITHUB_OUTPUT
 
-      - name: Login to Snapcraft
+      - name: Login to Snapcraft (supports credential file or expect fallback)
         if: steps.find-snap.outputs.snap_file != ''
         env:
           SNAPCRAFT_EMAIL: ${{ secrets.SNAPCRAFT_EMAIL }}
           SNAPCRAFT_PASSWORD: ${{ secrets.SNAPCRAFT_PASSWORD }}
+          SNAPCRAFT_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
         run: |
-          # Authenticate to the Snap Store. Credentials are provided via repository secrets.
-          # The snapcraft CLI may prompt for input; attempt to supply password via stdin.
+          # Prefer a pre-exported credential file (safe to store as secret). If present, write it and import.
+          if [ -n "$SNAPCRAFT_CREDENTIALS" ]; then
+            echo "$SNAPCRAFT_CREDENTIALS" > $HOME/snapcraft.credentials
+            snapcraft login --with $HOME/snapcraft.credentials || true
+            exit 0
+          fi
+
+          # Otherwise try a non-interactive login using expect to feed prompts.
           if [ -z "$SNAPCRAFT_EMAIL" ] || [ -z "$SNAPCRAFT_PASSWORD" ]; then
-            echo "SNAPCRAFT_EMAIL or SNAPCRAFT_PASSWORD not set; skipping login/push"
+            echo "SNAPCRAFT_EMAIL or SNAPCRAFT_PASSWORD not set; cannot login"
             exit 1
           fi
-          # Try non-interactive login. Depending on snapcraft version the exact flags may vary.
-          echo "$SNAPCRAFT_PASSWORD" | snapcraft login "$SNAPCRAFT_EMAIL" --password-stdin || true
+          sudo apt-get update
+          sudo apt-get install -y expect
+          expect <<'EOF'
+          set timeout -1
+          spawn snapcraft login
+          expect {
+            -re "[Ee]mail:" {
+              send "$env(SNAPCRAFT_EMAIL)\r"
+              exp_continue
+            }
+            -re "[Pp]assword:" {
+              send "$env(SNAPCRAFT_PASSWORD)\r"
+            }
+          }
+          expect eof
+EOF
 
       - name: Upload snap to Snap Store
         if: steps.find-snap.outputs.snap_file != ''
-        env:
-          SNAPCRAFT_EMAIL: ${{ secrets.SNAPCRAFT_EMAIL }}
-          SNAPCRAFT_PASSWORD: ${{ secrets.SNAPCRAFT_PASSWORD }}
         run: |
           SNAP_FILE=${{ steps.find-snap.outputs.snap_file }}
           if [ -z "$SNAP_FILE" ]; then
@@ -102,6 +122,7 @@ jobs:
           fi
           echo "Uploading $SNAP_FILE to snapcraft..."
           # Push to the Snap Store and release to edge channel by default. Adjust channel as needed.
+          # Prefer 'snapcraft upload' (newer) and fallback to 'snapcraft push'.
           snapcraft upload "$SNAP_FILE" --release edge || snapcraft push "$SNAP_FILE" --release edge
 
       - name: Upload snap as workflow artifact
