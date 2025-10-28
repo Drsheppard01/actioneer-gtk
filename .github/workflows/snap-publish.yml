@@ -9,6 +9,7 @@ env:
 jobs:
   build-and-publish:
     name: Build and publish snap (amd64 & arm64)
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       matrix:
         include:
