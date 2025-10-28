@@ -10,6 +10,11 @@ jobs:
   build-and-publish:
     name: Build and publish snap (amd64 & arm64)
     runs-on: ${{ matrix.runs-on }}
+    env:
+      # Provide the exported snapcraft credentials (created locally with
+      # `snapcraft export-login`) via repository secret. Snapcraft will read
+      # this from the SNAPCRAFT_STORE_CREDENTIALS env var to authenticate.
+      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
     strategy:
       matrix:
         include:
@@ -61,13 +66,14 @@ jobs:
           pushd snap
           snapcraft --destructive-mode build
           snapcraft --destructive-mode prime
-          mkdir -p snap-output
+          # Use a per-arch output directory so concurrent matrix runs don't collide
+          mkdir -p snap-output/${{ matrix.arch }}
           # Show prime contents for debugging (helps diagnose missing meta/snap.yaml)
           echo "Prime directory listing:" && ls -la prime || true
           echo "Prime/meta listing:" && ls -la prime/meta || true
           # Pack from inside the prime directory. Packing expects a meta/ directory
-          # inside the directory passed to `pack`.
-          (cd prime && snapcraft --destructive-mode pack . -o ../snap-output)
+          # inside the directory passed to `pack`. Write the .snap into the per-arch dir.
+          (cd prime && snapcraft --destructive-mode pack . -o ../snap-output/${{ matrix.arch }}/app.snap)
           popd
 
       - name: Find generated snap
@@ -75,10 +81,10 @@ jobs:
         run: |
           # Look specifically in snap/snap-output/ first (we run snapcraft in snap/)
           set -e
-          SNAP_FILE=$(find snap/snap-output -type f -name "*.snap" | head -n1 || true)
+          SNAP_FILE=$(find snap/snap-output/${{ matrix.arch }} -type f -name "*.snap" | head -n1 || true)
           if [ -z "$SNAP_FILE" ]; then
-            # Then check top-level snap-output/ (in case older runs used that)
-            SNAP_FILE=$(find snap-output -type f -name "*.snap" | head -n1 || true)
+            # Fallback: check the non-nested snap-output path (older runs)
+            SNAP_FILE=$(find snap-output/${{ matrix.arch }} -type f -name "*.snap" | head -n1 || true)
           fi
           if [ -z "$SNAP_FILE" ]; then
             # Fallback: search the repo for any .snap
