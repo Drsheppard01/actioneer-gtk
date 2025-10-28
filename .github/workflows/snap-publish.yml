@@ -64,16 +64,19 @@ jobs:
           # This ensures snapcraft can find the snap/snapcraft.yaml and will create
           # the expected meta/ files under prime/meta.
           pushd snap
-          snapcraft --destructive-mode build
-          snapcraft --destructive-mode prime
+          snapcraft --destructive-mode prime --build-for=${{ matrix.arch }}
+          if [ ! -f prime/meta/snap.yaml ]; then
+            echo "snapcraft prime did not produce prime/meta/snap.yaml"
+            exit 1
+          fi
           # Use a per-arch output directory so concurrent matrix runs don't collide
           mkdir -p snap-output/${{ matrix.arch }}
           # Show prime contents for debugging (helps diagnose missing meta/snap.yaml)
           echo "Prime directory listing:" && ls -la prime || true
           echo "Prime/meta listing:" && ls -la prime/meta || true
-          # Pack from inside the prime directory. Packing expects a meta/ directory
-          # inside the directory passed to `pack`. Write the .snap into the per-arch dir.
-          (cd prime && snapcraft --destructive-mode pack . -o ../snap-output/${{ matrix.arch }}/app.snap)
+          SNAP_OUTPUT="snap-output/${{ matrix.arch }}/actioneer-${{ matrix.arch }}.snap"
+          snapcraft --destructive-mode pack prime --build-for=${{ matrix.arch }} --output "$SNAP_OUTPUT"
+          echo "Snap written to $SNAP_OUTPUT"
           popd
 
       - name: Find generated snap
