@@ -4,6 +4,7 @@ use gtk4::prelude::*;
 pub struct WelcomeScreen {
     widget: gtk::Box,
     signin_button: gtk::Button,
+    demo_button: gtk::Button,
     quit_button: gtk::Button,
 }
 
@@ -92,8 +93,10 @@ impl WelcomeScreen {
         let demo_button = gtk::Button::with_label("Try Demo Mode");
         demo_button.add_css_class("pill");
         demo_button.set_widget_name("welcome-demo-button");
-        demo_button.set_sensitive(false); // Disabled for now as requested
-        demo_button.set_tooltip_text(Some("Demo mode coming soon"));
+        demo_button.set_tooltip_text(Some("Explore Actioneer with sample data"));
+        if !cfg!(debug_assertions) {
+            demo_button.set_visible(false);
+        }
         buttons_box.append(&demo_button);
 
         let quit_button = gtk::Button::new();
@@ -121,6 +124,7 @@ impl WelcomeScreen {
         Self {
             widget,
             signin_button,
+            demo_button,
             quit_button,
         }
     }
@@ -147,6 +151,10 @@ impl WelcomeScreen {
 
     pub fn connect_signin<F: Fn() + 'static>(&self, callback: F) {
         self.signin_button.connect_clicked(move |_| callback());
+    }
+
+    pub fn connect_demo<F: Fn() + 'static>(&self, callback: F) {
+        self.demo_button.connect_clicked(move |_| callback());
     }
 
     pub fn connect_quit<F: Fn() + 'static>(&self, callback: F) {

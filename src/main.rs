@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod cache;
 mod config;
+mod demo;
 mod favorites;
 mod notifications;
 mod preferences;

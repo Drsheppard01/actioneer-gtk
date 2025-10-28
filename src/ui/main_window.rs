@@ -7,6 +7,7 @@ use super::sidebar::{
 use crate::api::models::{RateLimitInfo, Repo};
 use crate::api::{GitHubClient, GitHubError};
 use crate::cache::DataCache;
+use crate::demo;
 use crate::favorites::FavoritesManager;
 use crate::notifications::NotificationManager;
 use crate::preferences::{Preferences, PreferencesManager};
@@ -60,9 +61,64 @@ pub struct MainWindow {
     background_refresh_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     handling_selection: Arc<Mutex<bool>>,
     notification_manager: Option<NotificationManager>,
+    demo_mode: Arc<Mutex<bool>>,
 }
 
 impl MainWindow {
+    fn is_demo_mode(&self) -> bool {
+        *self.demo_mode.lock()
+    }
+
+    fn enter_demo_mode(&self) {
+        if self.is_demo_mode() {
+            info!("Demo mode already active");
+            return;
+        }
+
+        info!("Entering demo mode with mock data");
+        self.stop_background_refresh();
+
+        let repos = demo::enable();
+        let rate_info = demo::rate_limit_info();
+
+        match GitHubClient::new(None) {
+            Ok(client) => {
+                let mut client_guard = self.client.lock();
+                *client_guard = Some(client);
+            }
+            Err(err) => {
+                error!("Failed to initialize demo client: {}", err);
+                return;
+            }
+        }
+
+        {
+            let mut flag = self.demo_mode.lock();
+            *flag = true;
+        }
+
+        {
+            let mut selected = self.selected_repo_id.lock();
+            *selected = None;
+        }
+
+        self.favorites.lock().clear();
+
+        self.show_authenticated_ui();
+        self.show_header_loading(false);
+
+        self.refresh_repository_view(repos.clone(), rate_info.clone());
+
+        if let Some(first_repo) = repos.first().cloned() {
+            let this = self.clone();
+            glib::idle_add_local_once(move || {
+                this.handle_repo_selection(Some(first_repo));
+            });
+        } else {
+            self.show_detail_placeholder();
+        }
+    }
+
     pub fn new(app: &adw::Application) -> Self {
         let window = adw::ApplicationWindow::builder()
             .application(app)
@@ -141,6 +197,7 @@ impl MainWindow {
         let handling_selection = Arc::new(Mutex::new(false));
         let header_spinner = Rc::new(RefCell::new(None));
         let notification_manager = Some(NotificationManager::new("me.spaceinbox.actioneer"));
+        let demo_mode = Arc::new(Mutex::new(false));
 
         let main_window = Self {
             window: window.clone(),
@@ -168,6 +225,7 @@ impl MainWindow {
             background_refresh_task: background_refresh_task.clone(),
             handling_selection: handling_selection.clone(),
             notification_manager: notification_manager.clone(),
+            demo_mode: demo_mode.clone(),
         };
 
         main_window.build_ui();
@@ -310,6 +368,11 @@ impl MainWindow {
         let this = self.clone();
         welcome_screen.connect_signin(move || {
             this.show_auth_window();
+        });
+
+        let demo_this = self.clone();
+        welcome_screen.connect_demo(move || {
+            demo_this.enter_demo_mode();
         });
 
         let window_for_quit = self.window.clone();
@@ -527,6 +590,11 @@ impl MainWindow {
     }
 
     fn initialize_client(&self, token: String) -> bool {
+        if self.is_demo_mode() {
+            demo::disable();
+            *self.demo_mode.lock() = false;
+        }
+
         match GitHubClient::new(Some(token)) {
             Ok(client) => {
                 {
@@ -561,6 +629,11 @@ impl MainWindow {
     fn enter_signed_out_state(&self) {
         info!("Switching to signed-out state");
         self.stop_background_refresh();
+
+        if self.is_demo_mode() {
+            demo::disable();
+            *self.demo_mode.lock() = false;
+        }
 
         {
             let mut handling = self.handling_selection.lock();
@@ -649,6 +722,10 @@ impl MainWindow {
         let this = self.clone();
         self.window.connect_is_active_notify(move |window| {
             if !window.is_active() {
+                return;
+            }
+
+            if this.is_demo_mode() {
                 return;
             }
 
