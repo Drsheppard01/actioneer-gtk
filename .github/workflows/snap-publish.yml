@@ -60,7 +60,13 @@ jobs:
           snapcraft --destructive-mode build
           snapcraft --destructive-mode prime
           mkdir -p snap-output
-          snapcraft --destructive-mode pack prime -o snap-output
+          # Show prime contents for debugging (helps diagnose missing meta/snap.yaml)
+          echo "Prime directory listing:" && ls -la prime || true
+          echo "Prime/meta listing:" && ls -la prime/meta || true
+          # Pack from inside the prime directory. Packing expects a meta/ directory
+          # inside the directory passed to `pack`, packing from `prime` directly
+          # avoids snapcraft looking in build/meta/ unexpectedly.
+          (cd prime && snapcraft --destructive-mode pack . -o ../snap-output)
 
       - name: Find generated snap
         id: find-snap
