@@ -55,8 +55,10 @@ jobs:
         run: |
           echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
           cargo build --workspace --release --verbose
-          # Build parts, assemble prime, and pack into a .snap explicitly.
-          # Use destructive-mode on CI runners to build in the host.
+          # Run snapcraft from the snap/ subdirectory where the snapcraft.yaml lives.
+          # This ensures snapcraft can find the snap/snapcraft.yaml and will create
+          # the expected meta/ files under prime/meta.
+          pushd snap
           snapcraft --destructive-mode build
           snapcraft --destructive-mode prime
           mkdir -p snap-output
@@ -64,16 +66,20 @@ jobs:
           echo "Prime directory listing:" && ls -la prime || true
           echo "Prime/meta listing:" && ls -la prime/meta || true
           # Pack from inside the prime directory. Packing expects a meta/ directory
-          # inside the directory passed to `pack`, packing from `prime` directly
-          # avoids snapcraft looking in build/meta/ unexpectedly.
+          # inside the directory passed to `pack`.
           (cd prime && snapcraft --destructive-mode pack . -o ../snap-output)
+          popd
 
       - name: Find generated snap
         id: find-snap
         run: |
-          # Look specifically in snap-output/ where pack writes the .snap
+          # Look specifically in snap/snap-output/ first (we run snapcraft in snap/)
           set -e
-          SNAP_FILE=$(find snap-output -type f -name "*.snap" | head -n1 || true)
+          SNAP_FILE=$(find snap/snap-output -type f -name "*.snap" | head -n1 || true)
+          if [ -z "$SNAP_FILE" ]; then
+            # Then check top-level snap-output/ (in case older runs used that)
+            SNAP_FILE=$(find snap-output -type f -name "*.snap" | head -n1 || true)
+          fi
           if [ -z "$SNAP_FILE" ]; then
             # Fallback: search the repo for any .snap
             SNAP_FILE=$(find . -type f -name "*.snap" | head -n1 || true)
