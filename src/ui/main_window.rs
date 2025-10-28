@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 // Import refactored modules
 use crate::ui::state::{RepoActionsState, WorkflowStatusCounts};
@@ -232,12 +232,22 @@ impl MainWindow {
         let sidebar_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         sidebar_box.append(&search_entry);
         sidebar_box.append(&scrolled);
+        sidebar_box.set_hexpand(false);
+        sidebar_box.set_vexpand(true);
+
+        let sidebar_viewport = gtk::Viewport::builder()
+            .scroll_to_focus(true)
+            .hexpand(false)
+            .vexpand(true)
+            .build();
+        sidebar_viewport.set_child(Some(&sidebar_box));
 
         let sidebar_clamp = adw::ClampScrollable::new();
         sidebar_clamp.set_maximum_size(420);
         sidebar_clamp.set_hexpand(false);
-        // Keep the sidebar width consistent once content loads so the detail pane has room.
-        sidebar_clamp.set_child(Some(&sidebar_box));
+        sidebar_clamp.set_vexpand(true);
+        // Wrap the viewport so ClampScrollable can bind to the GtkScrollable interface safely.
+        sidebar_clamp.set_child(Some(&sidebar_viewport));
 
         let detail_status_page = self.detail_status_page.clone();
         detail_status_page.set_vexpand(true);
@@ -1227,7 +1237,7 @@ impl MainWindow {
                         header.remove(&spinner);
                     }
                     _ => {
-                        warn!("No header spinner found to remove!");
+                        debug!("No header spinner present when hiding header loader");
                     }
                 }
 
