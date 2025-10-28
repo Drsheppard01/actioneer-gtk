@@ -103,6 +103,17 @@ glib::MainContext::default().spawn_local(async move { /* refresh widgets */ });
   - `src/api/client.rs` and `src/api/models.rs` (API surface)
   - `README.md` (dev setup and system deps)
 
+## Current repo status (short)
+
+- Feature parity with the macOS client has been achieved and is documented in `TODO.md`. Before making behavior-changing edits, consult `TODO.md` for the consolidated status and optional polish items.
+- Validation checklist for PRs that change behavior:
+  1. Run `cargo test` and ensure all unit and logic tests pass.
+  2. Run `cargo clippy -- -D warnings` and fix any lints (the repo enforces zero warnings).
+  3. Run `cargo fmt` to ensure consistent formatting.
+  4. For UI changes, run GTK-dependent tests locally when possible: `cargo test -- --ignored` (requires a display or headless Xvfb in CI).
+
+If touching API/caching code, follow the ETag/ResponseHandler pattern in `src/api/http.rs` and respect rate-limit handling.
+
 UI testing guidance
 - UI tests live under `tests/ui/` and are marked ignored by default (they use the Rust test ignore attribute). This avoids running UI integration tests headless on CI without a display. They require an X11/Wayland display or a headless Xvfb/virtual framebuffer in CI.
 - To run locally with a display (Linux):
