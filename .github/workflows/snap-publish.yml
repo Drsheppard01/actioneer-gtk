@@ -56,8 +56,8 @@ jobs:
         id: build
       - name: Publish to store
         uses: snapcore/action-publish@v1
-          env:
-            SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
-          with:
-            snap: ${{ steps.build.outputs.snap }}
-            release: stable
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: stable
