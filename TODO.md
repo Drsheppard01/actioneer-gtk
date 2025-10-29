@@ -34,6 +34,7 @@ Notes
 ---
 
 Recent Updates
+- [✅] 2025-10-29 — Reworked Snapcraft builds (root-level symlink + `.snapcraftignore`), produced `actioneer_1.0.0_arm64.snap` via `snapcraft pack --use-lxd`, and documented the process in `docs/snapcraft_ai_guide.md`.
 - [✅] 2025-10-28 — Hardened demo mode (hide release toggle, mock rate limits, skip token checks).
 - [✅] 2025-10-28 — Re-enabled welcome screen demo mode toggle and ensured switching to real auth exits demo (`src/ui/main_window.rs`, `src/ui/welcome_screen.rs`).
 - [✅] 2025-10-28 — Added a `gtk::Viewport` inside the sidebar `adw::ClampScrollable` (`src/ui/main_window.rs`) to eliminate GTK warnings about missing scrollable properties.

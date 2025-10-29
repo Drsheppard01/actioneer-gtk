@@ -56,25 +56,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build project and create snap (build -> prime -> pack)
+      - name: Build project and create snap (LXD pack)
         run: |
           echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
           cargo build --workspace --release --verbose
-          # Run snapcraft from the repo root so it discovers snap/snapcraft.yaml automatically.
-          snapcraft --destructive-mode prime --build-for=${{ matrix.arch }}
-          if [ ! -f prime/meta/snap.yaml ]; then
-            echo "snapcraft prime did not produce prime/meta/snap.yaml"
-            echo "Prime directory tree (depth 2):"
-            find prime -maxdepth 2 -mindepth 1 -type f -print || true
+          # Clean any previous state for this part (helpful when re-running jobs).
+          snapcraft clean actioneer --use-lxd --platform=${{ matrix.arch }} || true
+          OUTPUT_DIR="snap-output/${{ matrix.arch }}"
+          mkdir -p "$OUTPUT_DIR"
+          snapcraft pack --use-lxd --build-for=${{ matrix.arch }} --output "$OUTPUT_DIR"
+          SNAP_OUTPUT=$(find "$OUTPUT_DIR" -maxdepth 1 -type f -name "*.snap" | head -n1 || true)
+          if [ -z "$SNAP_OUTPUT" ]; then
+            echo "snapcraft pack did not produce a .snap in $OUTPUT_DIR"
             exit 1
           fi
-          # Use a per-arch output directory so concurrent matrix runs don't collide
-          mkdir -p snap-output/${{ matrix.arch }}
-          # Show prime contents for debugging (helps diagnose missing meta/snap.yaml)
-          echo "Prime directory listing:" && ls -la prime || true
-          echo "Prime/meta listing:" && ls -la prime/meta || true
-          SNAP_OUTPUT="snap-output/${{ matrix.arch }}/actioneer-${{ matrix.arch }}.snap"
-          snapcraft --destructive-mode pack prime --build-for=${{ matrix.arch }} --output "$SNAP_OUTPUT"
           echo "Snap written to $SNAP_OUTPUT"
 
       - name: Find generated snap

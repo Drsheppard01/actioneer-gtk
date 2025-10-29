@@ -1,0 +1,11 @@
+# Exclude build artifacts and VCS metadata from the snap build context
+.snapcraft/
+.snapcraftignore
+snap-output/
+target/
+.git/
+.gitignore
+.idea/
+.vscode/
+**/__pycache__/
+**/*.pyc
