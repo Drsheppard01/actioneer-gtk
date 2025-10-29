@@ -33,9 +33,11 @@ jobs:
           # Match the CI environment: GTK4 and libadwaita dev libs are required to build the native parts
           sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev
 
-      - name: Install Snapcraft CLI (for store uploads)
+      - name: Install snapd & snapcraft (on-runner)
         run: |
           sudo apt-get install -y snapd
+          sudo systemctl enable --now snapd || true
+          sudo snap install core || true
           sudo snap install snapcraft --classic
 
       - name: Install Rust
@@ -55,24 +57,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build project and create snap (Docker pack)
+      - name: Build Rust release
         run: |
-          echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
           set -euo pipefail
+          echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
           cargo build --workspace --release --verbose
-          IMAGE="ghcr.io/canonical/snapcraft:8_core24"
+
+      - name: Pack snap (snapcraft on runner)
+        run: |
+          set -euo pipefail
           OUTPUT_DIR="snap-output/${{ matrix.arch }}"
           SNAP_OUTPUT="$OUTPUT_DIR/actioneer_${{ matrix.arch }}.snap"
           rm -rf "$OUTPUT_DIR"
           mkdir -p "$OUTPUT_DIR"
-          # Clean any previous destructive-mode state (these directories live in the workspace volume).
-          sudo docker run --rm -v "$PWD:/project" -w /project --env SNAPCRAFT_BUILD_ENVIRONMENT=host "$IMAGE" \
-            clean actioneer --destructive-mode || true
-          sudo docker run --rm -v "$PWD:/project" -w /project --env SNAPCRAFT_BUILD_ENVIRONMENT=host "$IMAGE" \
-            pack --destructive-mode --build-for=${{ matrix.arch }} --output "$SNAP_OUTPUT"
-          sudo chown -R $USER:$USER "$OUTPUT_DIR" parts prime stage || true
+          snapcraft clean actioneer --destructive-mode || true
+          snapcraft pack --destructive-mode --output "$SNAP_OUTPUT"
           if [ ! -f "$SNAP_OUTPUT" ]; then
             echo "snapcraft pack did not produce $SNAP_OUTPUT"
+            ls -la "$OUTPUT_DIR"
             exit 1
           fi
           echo "Snap written to $SNAP_OUTPUT"
@@ -99,20 +101,21 @@ jobs:
           echo "Found snap: $SNAP_FILE"
           echo "snap_file=$SNAP_FILE" >> $GITHUB_OUTPUT
 
-      - name: Prepare Snapcraft credentials (via SNAPCRAFT_STORE_CREDENTIALS)
+      - name: Prepare snapcraft credentials and verify
         if: steps.find-snap.outputs.snap_file != ''
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
         run: |
-          # The official docs recommend providing the exported credentials file contents
-          # in the SNAPCRAFT_STORE_CREDENTIALS environment variable. That avoids writing a file.
-          if [ -z "$SNAPCRAFT_STORE_CREDENTIALS" ]; then
+          set -euo pipefail
+          if [ -z "${SNAPCRAFT_STORE_CREDENTIALS:-}" ]; then
             echo "SNAPCRAFT_CREDENTIALS secret not provided; upload steps will be skipped."
             exit 0
           fi
-          echo "Verifying snapcraft credentials..."
-          # whoami will succeed if the credentials are valid in the env
-          snapcraft whoami || (echo "snapcraft whoami failed; credentials may be invalid" && exit 1)
+          CREDS_FILE="$RUNNER_TEMP/snapcraft-creds.json"
+          printf '%s' "$SNAPCRAFT_STORE_CREDENTIALS" > "$CREDS_FILE"
+          chmod 600 "$CREDS_FILE"
+          snapcraft login --with "$CREDS_FILE" || true
+          snapcraft whoami
 
       - name: Upload snap to Snap Store
         if: steps.find-snap.outputs.snap_file != '' && env.SNAPCRAFT_STORE_CREDENTIALS != ''
