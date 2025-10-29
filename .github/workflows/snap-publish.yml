@@ -10,11 +10,6 @@ jobs:
   build-and-publish:
     name: Build and publish snap (amd64 & arm64)
     runs-on: ${{ matrix.runs-on }}
-    env:
-      # Provide the exported snapcraft credentials (created locally with
-      # `snapcraft export-login`) via repository secret. Snapcraft will read
-      # this from the SNAPCRAFT_STORE_CREDENTIALS env var to authenticate.
-      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
     strategy:
       matrix:
         include:
@@ -32,9 +27,6 @@ jobs:
           sudo apt-get update
           # Match the CI environment: GTK4 and libadwaita dev libs are required to build the native parts
           sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev
-
-      - name: Install Snapcraft
-        uses: samuelmeuli/action-snapcraft@v3
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
@@ -59,73 +51,19 @@ jobs:
           echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
           cargo build --workspace --release --verbose
 
-      - name: Pack snap (snapcraft on runner)
-        run: |
-          set -euo pipefail
-          OUTPUT_DIR="snap-output/${{ matrix.arch }}"
-          SNAP_OUTPUT="$OUTPUT_DIR/actioneer_${{ matrix.arch }}.snap"
-          rm -rf "$OUTPUT_DIR"
-          mkdir -p "$OUTPUT_DIR"
-          snapcraft clean actioneer --destructive-mode || true
-          snapcraft pack --destructive-mode --output "$SNAP_OUTPUT"
-          if [ ! -f "$SNAP_OUTPUT" ]; then
-            echo "snapcraft pack did not produce $SNAP_OUTPUT"
-            ls -la "$OUTPUT_DIR"
-            exit 1
-          fi
-          echo "Snap written to $SNAP_OUTPUT"
+      - name: Snap pack
+        uses: snapcore/action-build@v1
+        id: build
+      - name: Publish to store
+        uses: snapcore/action-publish@v1
+          env:
+            SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
+          with:
+            snap: ${{ steps.build.outputs.snap }}
+            release: stable
 
-      - name: Find generated snap
-        id: find-snap
-        run: |
-          # Look in the top-level snap-output/ directory first (current workflow behavior)
-          set -e
-          SNAP_FILE=$(find snap-output/${{ matrix.arch }} -type f -name "*.snap" | head -n1 || true)
-          if [ -z "$SNAP_FILE" ]; then
-            # Fallback: check the nested snap/snap-output path from earlier attempts
-            SNAP_FILE=$(find snap/snap-output/${{ matrix.arch }} -type f -name "*.snap" | head -n1 || true)
-          fi
-          if [ -z "$SNAP_FILE" ]; then
-            # Fallback: search the repo for any .snap
-            SNAP_FILE=$(find . -type f -name "*.snap" | head -n1 || true)
-          fi
-          if [ -z "$SNAP_FILE" ]; then
-            echo "No .snap produced in the workspace."
-            echo "snap_file=" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          echo "Found snap: $SNAP_FILE"
-          echo "snap_file=$SNAP_FILE" >> $GITHUB_OUTPUT
 
-      - name: Prepare snapcraft credentials and verify
-        if: steps.find-snap.outputs.snap_file != ''
-        env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SNAPCRAFT_STORE_CREDENTIALS:-}" ]; then
-            echo "SNAPCRAFT_CREDENTIALS secret not provided; upload steps will be skipped."
-            exit 0
-          fi
-          CREDS_FILE="$RUNNER_TEMP/snapcraft-creds.json"
-          printf '%s' "$SNAPCRAFT_STORE_CREDENTIALS" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
-          snapcraft login --with "$CREDS_FILE" || true
-          snapcraft whoami
 
-      - name: Upload snap to Snap Store
-        if: steps.find-snap.outputs.snap_file != '' && env.SNAPCRAFT_STORE_CREDENTIALS != ''
-        env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
-        run: |
-          SNAP_FILE=${{ steps.find-snap.outputs.snap_file }}
-          if [ -z "$SNAP_FILE" ]; then
-            echo "No snap file to upload"
-            exit 0
-          fi
-          echo "Uploading $SNAP_FILE to snapcraft..."
-          # snapcraft will use SNAPCRAFT_STORE_CREDENTIALS to authenticate non-interactively
-          snapcraft upload "$SNAP_FILE" --release edge || snapcraft push "$SNAP_FILE" --release edge
 
       - name: Upload snap as workflow artifact
         if: steps.find-snap.outputs.snap_file != ''
