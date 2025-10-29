@@ -33,12 +33,10 @@ jobs:
           # Match the CI environment: GTK4 and libadwaita dev libs are required to build the native parts
           sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev
 
-      - name: Install snapd & snapcraft (on-runner)
-        run: |
-          sudo apt-get install -y snapd
-          sudo systemctl enable --now snapd || true
-          sudo snap install core || true
-          sudo snap install snapcraft --classic
+      - name: Set up snapcraft (snapcore/action-snapcraft)
+        uses: snapcore/action-snapcraft@v2
+        with:
+          channel: stable
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
