@@ -56,6 +56,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Add runner to lxd group
+        run: sudo usermod -aG lxd $USER
+
+      - name: Refresh group membership
+        run: newgrp lxd
+
       - name: Build project and create snap (LXD pack)
         run: |
           echo "Building for arch=${{ matrix.arch }} on runner=${{ matrix.runs-on }}"
