@@ -25,6 +25,20 @@ Development workflow for agents
    - GTK widget updates happen on GLib main thread via `glib::MainContext::default().spawn_local(...)` or `glib::idle_add_local_once(...)`.
 6. Push changes and open a PR. Ensure `cargo clippy -- -D warnings` passes for new code.
 
+Additional guidance (matching `.github/copilot-instructions.md`)
+
+- Rust toolchain: prefer using `rustup` and pinning a toolchain for reproducible development (for example by adding a `rust-toolchain.toml` file in the repo). If a pinned toolchain is not available, use the latest `stable` channel. After switching toolchains run `cargo clean` then `cargo build` to ensure dependencies are rebuilt for the active toolchain.
+
+- Headless UI tests: when running the ignored UI tests on a headless Linux machine, use `xvfb-run` to provide a virtual X server. Example:
+
+   ```bash
+   xvfb-run -s "-screen 0 1280x1024x24" cargo test -- --ignored
+   ```
+
+   In CI prefer to either run tests in a container/image that includes an X server or use the above `xvfb-run` wrapper.
+
+- Token/keyring safety: `src/storage/token_storage.rs` contains a live keyring test and some operations that may write to or delete entries in the system keyring. Do NOT run or modify those destructive tests on developer machines unless you understand and accept the side-effects. Prefer using mocks or a dedicated test keyring account when adding or changing tests that interact with the system keyring.
+
 Hand-off to Copilot Coding Agent
 - If you want an asynchronous agent to continue implementing a large task, add the hashtag `#github-pull-request_copilot-coding-agent` to the PR description and include the task body. The agent will create a branch and follow the instructions.
 
