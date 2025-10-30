@@ -87,6 +87,20 @@ glib::MainContext::default().spawn_local(async move { /* refresh widgets */ });
   - UI tests: UI test harness has been added. Run `cargo test -- --ignored` to run the UI integration tests locally when a display is available. See the `tests/ui/README.md` for details on running in CI or headless.
   - Formatting & linting: `cargo fmt` and `cargo clippy -- -D warnings`. The project aims for zero warnings; a PR should not introduce warnings.
 
+  - Rust toolchain: prefer using `rustup` and pinning a toolchain for reproducible development (for example by adding a `rust-toolchain.toml` file in the repo). If a pinned toolchain is not available, use the latest `stable` channel. After switching toolchains run `cargo clean` then `cargo build` to ensure dependencies are rebuilt for the active toolchain.
+
+  - Headless UI tests (one-liner): when running the ignored UI tests on a headless Linux machine, use `xvfb-run` to provide a virtual X server. Example:
+
+    ```bash
+    xvfb-run -s "-screen 0 1280x1024x24" cargo test -- --ignored
+    ```
+
+    In CI prefer to either run tests in a container/image that includes an X server or use the above `xvfb-run` wrapper. See `tests/ui/README.md` for project-specific CI examples.
+
+  - Token/keyring safety: `src/storage/token_storage.rs` contains a live keyring test and some operations that may write to or delete entries in the system keyring. Do NOT run or modify those destructive tests on developer machines unless you understand and accept the side-effects. Prefer using mocks or a dedicated test keyring account when adding or changing tests that interact with the system keyring.
+
+  - PR checklist additions: when creating a PR, in addition to the validation checklist above, ensure you have updated `TODO.md` per the repository's `AGENTS.md` rules (mark started items as [🔄] and completed items as [✅], add a brief note in "Recent Updates"). This repo expects `TODO.md` to be kept current by contributors and automated agents.
+
 - Project-specific conventions
   - Prefer `parking_lot::Mutex` for shared state; code frequently clones `Arc<Mutex<T>>` before spawning tasks.
   - UI changes must use `glib::idle_add_local_once` or `spawn_local` to ensure GTK safety.
