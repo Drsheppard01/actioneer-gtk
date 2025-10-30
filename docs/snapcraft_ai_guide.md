@@ -3,10 +3,9 @@
 This note distills the Snapcraft documentation fetched during the investigation into a checklist tailored for this repository. Follow these steps before touching the workflow or `snapcraft.yaml`.
 
 ## Environment setup
-- Ensure Docker is available (`sudo apt-get install -y docker.io` on Ubuntu; GitHub-hosted runners already include it). The workflow uses the Snapcraft OCI image published at `ghcr.io/canonical/snapcraft`.
-- Pull the image you plan to use locally, e.g. `sudo docker pull ghcr.io/canonical/snapcraft:8_core24` for core24 snaps.
-- Run all commands from the repository root. A symlink (`snapcraft.yaml → snap/snapcraft.yaml`) exposes the manifest at the root so the container sees the full workspace mounted at `/project`.
-- Keep Rust available via `rustup` if you want to run `cargo` locally outside the container (Snapcraft will bootstrap Rust inside the container during the build).
+- Install `snapd` and Snapcraft locally (`sudo apt-get install -y snapd`, then `sudo systemctl enable --now snapd` and `sudo snap install snapcraft --classic`). This mirrors the CI runner configuration.
+- Run all commands from the repository root. A symlink (`snapcraft.yaml → snap/snapcraft.yaml`) exposes the manifest at the root so Snapcraft sees the project layout correctly.
+- Keep Rust available via `rustup` if you want to rebuild outside Snapcraft. The Snapcraft `rust` plugin still installs its own toolchain during the build step.
 
 ## Project layout expectations
 - `snapcraft.yaml` lives in `snap/` and is consumed through the root-level symlink. Do **not** duplicate the file.
@@ -22,26 +21,26 @@ This note distills the Snapcraft documentation fetched during the investigation 
 6. **Stage packages** — libadwaita/libgtk/libssl ship runtime GTK stack. Use `stage-packages` for runtime libraries, `build-packages` for headers + pkgconfig.
 7. **Slots/plugs** — the DBus session slot exposes `me.spaceinbox.actioneer`; keep it aligned with the desktop file `DBusActivatable` entry.
 
-## Local build flow (Snapcraft Docker image)
-1. `sudo docker run --rm -v "$PWD:/project" -w /project ghcr.io/canonical/snapcraft:8_core24 clean actioneer --destructive-mode` to wipe `parts/`, `prime/`, and related directories.
-2. `sudo docker run --rm -v "$PWD:/project" -w /project ghcr.io/canonical/snapcraft:8_core24 pack --destructive-mode --build-for=<arch> --output snap-output/<arch>/actioneer_<arch>.snap` to build for a specific architecture.
-3. Outputs land in `snap-output/<arch>/`. Remove them after tests to keep the tree clean, and run `sudo chown -R $USER:$USER snap-output parts prime stage` if you need to adjust permissions.
-4. Review lint diagnostics printed after `pack`. They are currently warnings (unused GUI libs, missing `donation` link) but track regressions.
+## Local build flow (native snapcraft)
+1. `snapcraft clean actioneer --destructive-mode` to wipe `parts/`, `prime/`, and related directories when dependencies or layout change.
+2. `snapcraft pack --destructive-mode --output snap-output/<arch>/actioneer_<arch>.snap` builds a release snap using the host architecture (arm64 on arm runners, amd64 on x86).
+3. Outputs land in `snap-output/<arch>/`. Remove them after tests to keep the tree clean. Files are owned by your user when running locally.
+4. Review lint diagnostics printed after `pack`. They are currently warnings (unused GUI libs, missing `donation` link); track regressions or new errors.
 
 ## CI workflow expectations
-- Workflow should run from the repo root so the symlinked manifest is detected automatically. The current job shells into Docker with `ghcr.io/canonical/snapcraft:8_core24` and runs `snapcraft clean ... --destructive-mode` followed by `snapcraft pack ... --destructive-mode --build-for=${{ matrix.arch }}`.
+- Workflow runs from the repo root so the symlinked manifest is detected automatically. Each matrix job builds natively on its architecture using `snapcraft pack --destructive-mode`.
 - Use separate output directories per architecture (`snap-output/<arch>/`) before uploading artifacts.
-- Keep the cache step for Cargo but remember Snapcraft performs its own Rust build inside the container; the cache mainly speeds up the initial `cargo` invocation during the hook.
-- Snapcraft is still installed on the host via `snapd` so that `snapcraft whoami` and `snapcraft upload` can run against the store; keep those commands after the container build completes.
+- Keep the cache step for Cargo but remember Snapcraft performs its own Rust build; the cache mainly speeds up the explicit `cargo build` step.
+- Snapcraft is installed directly on the runner via `snapd`, allowing `snapcraft login`, `snapcraft whoami`, and `snapcraft upload` to execute without containers.
 - Ensure the Snapcraft store credentials are passed via `SNAPCRAFT_STORE_CREDENTIALS`; `snapcraft whoami` is the quick validation.
 - After `pack`, call `snapcraft upload` (alias `snapcraft push`) with `--release edge` as currently configured.
 
 ## Troubleshooting checklist
 - **Missing `prime/meta/snap.yaml`** — means the `pack` command did not consume the `prime` dir; verify `snapcraft pack` completed and inspect `prime/meta/` contents.
-- **`Cargo.toml` not found** — happens when Snapcraft cannot see the repo root. Always invoke Docker from the top-level directory so `/project` maps to the workspace and keep the root symlink intact.
+- **`Cargo.toml` not found** — happens when Snapcraft cannot see the repo root. Always invoke commands from the top-level directory so the root symlink remains in place.
 - **Filename too long / recursive copy** — avoid symlinking the project back into `snap/`; rely on the symlinked manifest instead.
 - **GTK runtime issues** — ensure `stage-packages` matches the GNOME platform (libadwaita-1-0, libgtk-4-1) and that the GNOME extension remains enabled.
-- **Permission denied removing build dirs** — container builds run as root. Use `sudo chown -R $USER:$USER parts prime stage snap-output` after a build if cleanup fails.
+- **Snapcraft cache issues** — run `snapcraft clean actioneer --destructive-mode` if builds behave inconsistently after dependency changes.
 
 Cross-reference:
 - Ubuntu Snapcraft docs > *Configure package information*, *Select a base*, *Select platforms*, *Manage build dependencies*, *Add configuration options*, *Override default build process*.

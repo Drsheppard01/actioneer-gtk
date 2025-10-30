@@ -34,6 +34,7 @@ Notes
 ---
 
 Recent Updates
+- [✅] 2025-10-30 — Replaced Docker guidance with the native Snapcraft workflow in `docs/snapcraft_ai_guide.md` to match the updated CI (`snap-publish.yml`).
 - [✅] 2025-10-29 — Switched Snapcraft builds to the `ghcr.io/canonical/snapcraft:8_core24` Docker image, updated CI to drop LXD membership hacks, refreshed `docs/snapcraft_ai_guide.md`, and kept the root symlink + `.snapcraftignore` layout intact.
 - [✅] 2025-10-28 — Hardened demo mode (hide release toggle, mock rate limits, skip token checks).
 - [✅] 2025-10-28 — Re-enabled welcome screen demo mode toggle and ensured switching to real auth exits demo (`src/ui/main_window.rs`, `src/ui/welcome_screen.rs`).
