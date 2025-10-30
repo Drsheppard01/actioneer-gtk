@@ -4,7 +4,7 @@ runtime-version: "44"
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust
-command: me.spaceinbox.actioneer
+command: actioneer
 finish-args:
   # Keep permissions minimal; expand only as needed during testing.
   - --share=network
@@ -20,7 +20,14 @@ modules:
     build-commands:
       # Use the SDK Rust extension so cargo and rustup are available.
       - cargo build --release
-      - install -Dm755 target/release/actioneer /app/bin/me.spaceinbox.actioneer || cp target/release/actioneer /app/bin/me.spaceinbox.actioneer
+      # Install the binary to a name matching the desktop icon/Exec
+      - install -Dm755 target/release/actioneer /app/bin/actioneer || cp target/release/actioneer /app/bin/actioneer
+      # Install desktop file and AppStream metainfo so Flatpak/desktop environments discover the app
+      - install -Dm644 data/me.spaceinbox.actioneer.desktop /app/share/applications/me.spaceinbox.actioneer.desktop
+      - install -Dm644 data/metainfo.xml /app/share/metainfo/me.spaceinbox.actioneer.metainfo.xml
+      # Copy application icons into the hicolor icon theme so AppStream and desktops can find them
+      - mkdir -p /app/share/icons/hicolor
+      - cp -a icons/icons/hicolor/* /app/share/icons/hicolor/
     sources:
       - type: git
         url: https://github.com/makoni/actioneer-gtk.git
