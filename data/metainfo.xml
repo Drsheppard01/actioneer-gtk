@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+  <!-- AppStream metainfo for Actioneer GTK -->
+  <id>me.spaceinbox.actioneer</id>
+  <metadata_license>MIT</metadata_license>
+  <name>Actioneer</name>
+  <summary>Native GTK4/libadwaita desktop client for GitHub Actions (Rust)</summary>
+  <description>
+    <p>Actioneer is a native GTK4/libadwaita application that lets you browse GitHub
+    repositories, inspect workflow runs, check job logs, and trigger background
+    refreshes without leaving your desktop and integrates with GNOME notifications.</p>
+
+    <p>Key features</p>
+    <ul>
+      <li>Browse your GitHub repositories and view Actions workflows and recent runs quickly.</li>
+      <li>Inspect run status (success, failure, queued, in progress) with clear badges and counts.</li>
+      <li>View job logs: download and preview run logs for quick troubleshooting.</li>
+      <li>Dispatch workflows, cancel running workflows, and re-run failed runs directly from the app.</li>
+      <li>Favorites and quick search let you focus on the repositories and workflows that matter most.</li>
+      <li>Desktop notifications for run completions and failures so you never miss important results.</li>
+      <li>In-memory caching and efficient refresh make the app responsive while respecting GitHub rate limits.</li>
+    </ul>
+
+    <p>This package contains the desktop application, icons and AppStream metadata required for
+    distribution via Flatpak/Flathub. See the project repository for source code, contribution
+    guidelines and additional documentation:</p>
+
+    <p>https://github.com/makoni/actioneer-gtk</p>
+  </description>
+
+  <project_license>MIT</project_license>
+  <url type="homepage">https://github.com/makoni/actioneer-gtk</url>
+  <developer_name>Sergey Armodin</developer_name>
+
+  <!-- Content rating and categories -->
+  <content_rating>0+</content_rating>
+  <categories>
+    <category>Development</category>
+    <category>Utilities</category>
+  </categories>
+
+  <!-- Icons and screenshots: include icon names that match files in the icons/ directory.
+       Add screenshot entries when screenshots are available in data/screenshots/ or icons/preview. -->
+  <screenshots>
+    <!-- Referencing screenshots added under data/screenshots/ -->
+    <screenshot type="default">screenshots/1.png</screenshot>
+    <screenshot type="detail">screenshots/2.png</screenshot>
+    <screenshot type="detail">screenshots/3.png</screenshot>
+    <screenshot type="detail">screenshots/4.png</screenshot>
+  </screenshots>
+
+  <release>
+    <version>1.0.0</version>
+  </release>
+</component>
