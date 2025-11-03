@@ -3,6 +3,8 @@ runtime: org.gnome.Platform
 runtime-version: "49"
 # Use the GNOME SDK for matching runtime-version 49 (keep runtime up-to-date to avoid EOL)
 sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
 # The rust extension is part of the freedesktop SDK namespace; keep the rust extension so cargo/toolchain
 # is available inside the build environment. If this extension is unavailable for the GNOME SDK in your
 # environment, try switching sdk back to org.freedesktop.Sdk and runtime-version to a freedesktop-supported
@@ -26,15 +28,24 @@ modules:
       # when testing packaging locally. For Flathub submission the manifest
       # should be reverted to build from source.
       - |-
-        if [ -x ../target/release/actioneer ]; then
-          install -Dm755 ../target/release/actioneer /app/bin/actioneer
+        PREBUILT=""
+        for candidate in target/release/actioneer ../target/release/actioneer; do
+          if [ -x "$candidate" ]; then
+            PREBUILT="$candidate"
+            break
+          fi
+        done
+
+        if [ -n "$PREBUILT" ]; then
+          install -Dm755 "$PREBUILT" /app/bin/actioneer
         else
           echo "Prebuilt binary not found; attempting in-SDK build"
           cargo build --release
           install -Dm755 target/release/actioneer /app/bin/actioneer
         fi
-      # Install desktop file and AppStream metainfo so Flatpak/desktop environments discover the app
+      # Install desktop file, D-Bus service, and AppStream metadata so Flatpak/desktop environments discover the app
       - install -Dm644 data/me.spaceinbox.actioneer.desktop /app/share/applications/me.spaceinbox.actioneer.desktop
+      - install -Dm644 data/me.spaceinbox.actioneer.service /app/share/dbus-1/services/me.spaceinbox.actioneer.service
       - install -Dm644 data/metainfo.xml /app/share/metainfo/me.spaceinbox.actioneer.metainfo.xml
       # Copy application icons into the hicolor icon theme so AppStream and desktops can find them
       - mkdir -p /app/share/icons/hicolor
