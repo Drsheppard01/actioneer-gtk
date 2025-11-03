@@ -54,13 +54,13 @@ modules:
           fi
           if [ ! -f .cargo/config.toml ]; then
             mkdir -p .cargo
-            cat <<'EOF' > .cargo/config.toml
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "vendor"
-EOF
+            printf '%s\n' \
+              '[source.crates-io]' \
+              'replace-with = "vendored-sources"' \
+              '' \
+              '[source.vendored-sources]' \
+              'directory = "vendor"' \
+              > .cargo/config.toml
           fi
           cargo fetch --locked --offline
           cargo build --release --locked --offline
