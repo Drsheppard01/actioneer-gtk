@@ -13,6 +13,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust toolchain for vendoring
+        shell: bash
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Vendor Rust dependencies
+        shell: bash
+        run: |
+          rm -rf vendor
+          cargo vendor --locked --versioned-dirs vendor
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:

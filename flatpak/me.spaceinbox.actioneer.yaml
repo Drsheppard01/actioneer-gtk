@@ -15,7 +15,6 @@ build-options:
 # The rust extension is part of the freedesktop SDK namespace; keep the rust extension so cargo/toolchain
 # is available inside the build environment. If this extension is unavailable for the GNOME SDK in your
 # environment, try switching sdk back to org.freedesktop.Sdk and runtime-version to a freedesktop-supported
-# SDK version (for example "23.08").
 command: actioneer
 finish-args:
   # Keep permissions minimal; expand only as needed during testing.
@@ -52,6 +51,16 @@ modules:
           if [ ! -d vendor ]; then
             echo "Vendored dependencies missing; run 'cargo vendor --versioned-dirs vendor' before building." >&2
             exit 1
+          fi
+          if [ ! -f .cargo/config.toml ]; then
+            mkdir -p .cargo
+            cat <<'EOF' > .cargo/config.toml
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
           fi
           cargo fetch --locked --offline
           cargo build --release --locked --offline
