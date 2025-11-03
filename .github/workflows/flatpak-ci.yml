@@ -7,29 +7,19 @@ jobs:
   build:
     name: Build Flatpak (CI)
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder curl jq
-
-      - name: Add Flathub remote
-        run: |
-          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
-
-      - name: Build Flatpak with flatpak-builder
-        run: |
-          # This will download runtimes and build the app. It may take several minutes.
-          flatpak-builder --force-clean --repo=repo build-ci flatpak/me.spaceinbox.actioneer.yaml || true
-
-      - name: Export repository (optional)
-        run: |
-          # If you want to export a repo artifact for inspection, uncomment the lines below
-          # flatpak build-export repo build-ci
-          echo "Flatpak CI finished (artifact export optional)."
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: flatpak/me.spaceinbox.actioneer.yaml
+          cache-key: flatpak-builder-${{ github.sha }}
+          build-bundle: false
+          upload-artifact: false
 
       # NOTE: It's recommended to run the flathub linter and/or push a PR to flathub to use the
       # Flathub builders for final validation. This workflow is a starter template; adjust to
