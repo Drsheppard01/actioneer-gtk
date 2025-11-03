@@ -25,6 +25,7 @@ jobs:
         shell: bash
         run: |
           rm -rf vendor
+          cargo generate-lockfile
           cargo vendor --locked --versioned-dirs vendor
 
       - name: Build Flatpak
