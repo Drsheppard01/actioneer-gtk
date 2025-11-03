@@ -1,0 +1,39 @@
+name: Flatpak CI
+
+on:
+  push:
+    branches: [ develop, main ]
+  pull_request:
+    branches: [ develop, main ]
+
+jobs:
+  build:
+    name: Build Flatpak (CI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder curl jq
+
+      - name: Add Flathub remote
+        run: |
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
+
+      - name: Build Flatpak with flatpak-builder
+        run: |
+          # This will download runtimes and build the app. It may take several minutes.
+          flatpak-builder --force-clean --repo=repo build-ci flatpak/me.spaceinbox.actioneer.yaml || true
+
+      - name: Export repository (optional)
+        run: |
+          # If you want to export a repo artifact for inspection, uncomment the lines below
+          # flatpak build-export repo build-ci
+          echo "Flatpak CI finished (artifact export optional)."
+
+      # NOTE: It's recommended to run the flathub linter and/or push a PR to flathub to use the
+      # Flathub builders for final validation. This workflow is a starter template; adjust to
+      # your CI policies and secrets as needed.

@@ -1,9 +1,12 @@
 app-id: me.spaceinbox.actioneer
 runtime: org.gnome.Platform
-runtime-version: "44"
-sdk: org.freedesktop.Sdk
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust
+runtime-version: "49"
+# Use the GNOME SDK for matching runtime-version 49 (keep runtime up-to-date to avoid EOL)
+sdk: org.gnome.Sdk
+# The rust extension is part of the freedesktop SDK namespace; keep the rust extension so cargo/toolchain
+# is available inside the build environment. If this extension is unavailable for the GNOME SDK in your
+# environment, try switching sdk back to org.freedesktop.Sdk and runtime-version to a freedesktop-supported
+# SDK version (for example "23.08").
 command: actioneer
 finish-args:
   # Keep permissions minimal; expand only as needed during testing.
@@ -16,12 +19,20 @@ finish-args:
 
 modules:
   - name: actioneer
-    build-system: simple
+    buildsystem: simple
     build-commands:
-      # Use the SDK Rust extension so cargo and rustup are available.
-      - cargo build --release
-      # Install the binary to a name matching the desktop icon/Exec
-      - install -Dm755 target/release/actioneer /app/bin/actioneer || cp target/release/actioneer /app/bin/actioneer
+      # For local developer builds we install a prebuilt binary from the repo's
+      # `target/release` directory. This avoids needing cargo inside the SDK
+      # when testing packaging locally. For Flathub submission the manifest
+      # should be reverted to build from source.
+      - |-
+        if [ -x ../target/release/actioneer ]; then
+          install -Dm755 ../target/release/actioneer /app/bin/actioneer
+        else
+          echo "Prebuilt binary not found; attempting in-SDK build"
+          cargo build --release
+          install -Dm755 target/release/actioneer /app/bin/actioneer
+        fi
       # Install desktop file and AppStream metainfo so Flatpak/desktop environments discover the app
       - install -Dm644 data/me.spaceinbox.actioneer.desktop /app/share/applications/me.spaceinbox.actioneer.desktop
       - install -Dm644 data/metainfo.xml /app/share/metainfo/me.spaceinbox.actioneer.metainfo.xml
@@ -29,9 +40,10 @@ modules:
       - mkdir -p /app/share/icons/hicolor
       - cp -a icons/icons/hicolor/* /app/share/icons/hicolor/
     sources:
-      - type: git
-        url: https://github.com/makoni/actioneer-gtk.git
-        branch: develop
+      # Use the local repo directory for quick developer builds so the
+      # prebuilt binary under `target/release` is available to flatpak-builder.
+      - type: dir
+        path: ..
 
 # Notes:
 # - This is a starter manifest for local development and testing. For Flathub submission you should

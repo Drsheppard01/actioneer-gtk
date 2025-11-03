@@ -33,7 +33,9 @@
   <developer_name>Sergey Armodin</developer_name>
 
   <!-- Content rating and categories -->
-  <content_rating>0+</content_rating>
+  <content_rating type="pegi">
+    <rating>0</rating>
+  </content_rating>
   <categories>
     <category>Development</category>
     <category>Utilities</category>

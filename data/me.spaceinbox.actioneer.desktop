@@ -9,5 +9,5 @@ Type=Application
 Categories=Development;Utility;
 Keywords=GitHub;Actions;CI;Workflow;Automation;
 StartupNotify=true
-DBusActivatable=true
+DBusActivatable=false
 X-GNOME-UsesNotifications=true
