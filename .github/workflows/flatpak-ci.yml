@@ -20,6 +20,7 @@ jobs:
           cache-key: flatpak-builder-${{ github.sha }}
           build-bundle: false
           upload-artifact: false
+          run-tests: true
 
       # NOTE: It's recommended to run the flathub linter and/or push a PR to flathub to use the
       # Flathub builders for final validation. This workflow is a starter template; adjust to
