@@ -33,7 +33,8 @@ Notes
 
 ---
 
-Recent Updates
+-Recent Updates
+- [✅] 2025-11-03 — Vendored Rust crates for Flatpak builds (`vendor/`, `.cargo/config.toml`), switched manifest to offline cargo commands, and prepared CI to build without network access errors.
 - [✅] 2025-11-03 — Replaced manual Flatpak CI setup with the official `flatpak-builder` GitHub Action, enabled temporary network access via the action’s `run-tests` toggle, and exposed the Rust SDK extension (PATH/env tweaks) so cargo-based builds succeed without a prebuilt binary.
 - [✅] 2025-11-03 — Enabled D-Bus activation for notification clicks (desktop entry + service file), updated Flatpak permissions/install steps, aligned icon naming with the app id, and trimmed unused Snap ICU libs while keeping legacy assets for Snap.
 - [✅] 2025-10-30 — Replaced Docker guidance with the native Snapcraft workflow in `docs/snapcraft_ai_guide.md` to match the updated CI (`snap-publish.yml`).
