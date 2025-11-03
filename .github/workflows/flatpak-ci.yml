@@ -2,11 +2,26 @@ name: Flatpak CI
 
 on:
   workflow_dispatch:
+  workflow_call:
+    outputs:
+      run-id:
+        description: GitHub run id that produced the Flatpak artifacts
+        value: ${{ jobs.build.outputs.run-id }}
 
 jobs:
   build:
     name: Build Flatpak (CI)
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm64
+    outputs:
+      run-id: ${{ steps.expose-run-id.outputs.run_id }}
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
       options: --privileged
@@ -32,10 +47,37 @@ jobs:
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: flatpak/me.spaceinbox.actioneer.yaml
-          cache-key: flatpak-builder-${{ github.sha }}
-          build-bundle: false
+          cache-key: flatpak-builder-${{ matrix.arch }}-${{ github.sha }}
+          build-bundle: true
+          bundle: actioneer-${{ matrix.arch }}.flatpak
           upload-artifact: false
           run-tests: true
+
+      - name: Collect Flatpak bundle
+        id: collect-bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          bundle=$(find . -maxdepth 1 -name '*.flatpak' -print -quit)
+          if [ -z "$bundle" ]; then
+            echo "Bundle not found" >&2
+            exit 1
+          fi
+          dest="dist/actioneer-${{ matrix.arch }}.flatpak"
+          mv "$bundle" "$dest"
+          echo "bundle_path=$dest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: ${{ steps.collect-bundle.outputs.bundle_path }}
+          compression-level: 0
+
+      - name: Expose workflow run id
+        id: expose-run-id
+        run: echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
 
       # NOTE: It's recommended to run the flathub linter and/or push a PR to flathub to use the
       # Flathub builders for final validation. This workflow is a starter template; adjust to

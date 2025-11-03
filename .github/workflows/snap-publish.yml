@@ -1,14 +1,19 @@
-name: Snap Publish
+name: Snap CI
 
 on:
   workflow_dispatch:
+  workflow_call:
+    outputs:
+      run-id:
+        description: GitHub run id that produced the Snap artifacts
+        value: ${{ jobs.build-and-publish.outputs.run-id }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build-and-publish:
-    name: Build and publish snap (amd64 & arm64)
+    name: Build snap (amd64 & arm64)
     runs-on: ${{ matrix.runs-on }}
     strategy:
       matrix:
@@ -18,6 +23,8 @@ jobs:
           - arch: arm64
             # Use the arm64 hosted runner label. Adjust this label if your organization uses a different one.
             runs-on: ubuntu-24.04-arm64
+    outputs:
+      run-id: ${{ steps.expose-run-id.outputs.run_id }}
 
     steps:
       - uses: actions/checkout@v4
@@ -54,10 +61,21 @@ jobs:
       - name: Snap pack
         uses: snapcore/action-build@v1
         id: build
-      - name: Publish to store
-        uses: snapcore/action-publish@v1
-        env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
+      # - name: Publish to store
+      #   uses: snapcore/action-publish@v1
+      #   env:
+      #     SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_CREDENTIALS }}
+      #   with:
+      #     snap: ${{ steps.build.outputs.snap }}
+      #     release: stable
+
+      - name: Upload Snap artifact
+        uses: actions/upload-artifact@v4
         with:
-          snap: ${{ steps.build.outputs.snap }}
-          release: stable
+          name: snap-${{ matrix.arch }}
+          path: ${{ steps.build.outputs.snap }}
+          compression-level: 0
+
+      - name: Expose workflow run id
+        id: expose-run-id
+        run: echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,78 @@
+name: Debian Package CI
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      run-id:
+        description: GitHub run id that produced the Debian package artifacts
+        value: ${{ jobs.build.outputs.run-id }}
+
+jobs:
+  build:
+    name: Build .deb (amd64 & arm64)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            nfpm_arch: amd64
+            nfpm_pkg_arch: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm64
+            nfpm_arch: arm64
+            nfpm_pkg_arch: arm64
+    outputs:
+      run-id: ${{ steps.expose-run-id.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev jq curl tar
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build release binary
+        run: |
+          cargo build --workspace --release --verbose
+
+      - name: Prepare packaging metadata
+        run: |
+          set -euo pipefail
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer" ) | .version')
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "NFPM_ARCH=${{ matrix.nfpm_arch }}" >> "$GITHUB_ENV"
+
+      - name: Install nfpm
+        run: |
+          set -euo pipefail
+          URL="https://github.com/goreleaser/nfpm/releases/latest/download/nfpm_Linux_${{ matrix.nfpm_pkg_arch }}.tar.gz"
+          curl -sSL "$URL" | tar -xz nfpm
+          sudo mv nfpm /usr/local/bin/nfpm
+
+      - name: Build Debian package
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          nfpm package --config packaging/nfpm.yaml --packager deb --target dist
+          deb_file=$(find dist -name '*.deb' -print -quit)
+          mv "$deb_file" "dist/actioneer-${{ matrix.arch }}.deb"
+
+      - name: Upload Debian artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: dist/actioneer-${{ matrix.arch }}.deb
+          compression-level: 0
+
+      - name: Expose workflow run id
+        id: expose-run-id
+        run: echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,103 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag for the draft release (e.g., v1.0.0)
+        required: true
+      name:
+        description: Optional release title (defaults to the tag)
+        required: false
+      notes:
+        description: Optional release notes (defaults to a placeholder)
+        required: false
+
+jobs:
+  flatpak:
+    uses: ./.github/workflows/flatpak-ci.yml
+    secrets: inherit
+
+  snap:
+    uses: ./.github/workflows/snap-publish.yml
+    secrets: inherit
+
+  appimage:
+    uses: ./.github/workflows/appimage-ci.yml
+    secrets: inherit
+
+  deb:
+    uses: ./.github/workflows/deb-ci.yml
+    secrets: inherit
+
+  rpm:
+    uses: ./.github/workflows/rpm-ci.yml
+    secrets: inherit
+
+  release:
+    needs: [flatpak, snap, appimage, deb, rpm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Flatpak artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/flatpak
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.flatpak.outputs.run-id }}
+
+      - name: Download Snap artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/snap
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.snap.outputs.run-id }}
+
+      - name: Download AppImage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/appimage
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.appimage.outputs.run-id }}
+
+      - name: Download Debian artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/deb
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.deb.outputs.run-id }}
+
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/rpm
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.rpm.outputs.run-id }}
+
+      - name: Collect release assets
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find artifacts -type f -print0 | while IFS= read -r -d '' file; do
+            cp "$file" release-assets/
+          done
+          ls -al release-assets
+
+      - name: Draft GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          NAME="${{ inputs.name }}"
+          NOTES="${{ inputs.notes }}"
+          if [ -z "$NAME" ]; then
+            NAME="$TAG"
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES="Release drafted automatically. Update notes before publishing."
+          fi
+          mapfile -t FILES < <(find release-assets -type f -print)
+          gh release create "$TAG" --draft --title "$NAME" --notes "$NOTES" "${FILES[@]}"

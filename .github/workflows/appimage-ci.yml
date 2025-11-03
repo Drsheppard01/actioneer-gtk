@@ -1,0 +1,81 @@
+name: AppImage CI
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      run-id:
+        description: GitHub run id that produced the AppImage artifacts
+        value: ${{ jobs.build.outputs.run-id }}
+
+jobs:
+  build:
+    name: Build AppImage (amd64 & arm64)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            appimagetool_suffix: x86_64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm64
+            appimagetool_suffix: aarch64
+    outputs:
+      run-id: ${{ steps.expose-run-id.outputs.run_id }}
+    env:
+      APPDIR: build/AppDir
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev desktop-file-utils
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build release binary
+        run: |
+          cargo build --workspace --release --verbose
+
+      - name: Assemble AppDir
+        run: |
+          set -euo pipefail
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          install -Dm755 target/release/actioneer "$APPDIR/usr/bin/actioneer"
+          install -Dm644 data/me.spaceinbox.actioneer.desktop "$APPDIR/usr/share/applications/me.spaceinbox.actioneer.desktop"
+          install -Dm644 data/me.spaceinbox.actioneer.service "$APPDIR/usr/share/dbus-1/services/me.spaceinbox.actioneer.service"
+          install -Dm644 data/metainfo.xml "$APPDIR/usr/share/metainfo/me.spaceinbox.actioneer.metainfo.xml"
+          install -Dm644 LICENSE "$APPDIR/usr/share/licenses/actioneer/LICENSE"
+          mkdir -p "$APPDIR/usr/share/icons"
+          cp -a icons/icons/hicolor "$APPDIR/usr/share/icons/hicolor"
+          printf '#!/bin/sh\nHERE="$(dirname "$0")"\nexec "$HERE/usr/bin/actioneer" "$@"\n' > "$APPDIR/AppRun"
+          chmod +x "$APPDIR/AppRun"
+
+      - name: Build AppImage
+        run: |
+          set -euo pipefail
+          curl -L "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${{ matrix.appimagetool_suffix }}.AppImage" -o appimagetool.AppImage
+          chmod +x appimagetool.AppImage
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export ARCH=${{ matrix.arch }}
+          mkdir -p dist
+          ./appimagetool.AppImage "$APPDIR" "dist/Actioneer-${{ matrix.arch }}.AppImage"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-${{ matrix.arch }}
+          path: dist/Actioneer-${{ matrix.arch }}.AppImage
+          compression-level: 0
+
+      - name: Expose workflow run id
+        id: expose-run-id
+        run: echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"

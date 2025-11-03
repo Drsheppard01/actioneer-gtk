@@ -34,6 +34,7 @@ Notes
 ---
 
 -Recent Updates
+- [✅] 2025-11-04 — Added a `publish` workflow to orchestrate packaging jobs, gather artifacts, and draft GitHub releases from the aggregated outputs.
 - [✅] 2025-11-03 — Added a CI vendoring step for Flatpak builds (dynamic `vendor/` + in-sandbox cargo config) and switched the manifest to offline cargo commands to avoid network failures.
 - [✅] 2025-11-03 — Replaced manual Flatpak CI setup with the official `flatpak-builder` GitHub Action, enabled temporary network access via the action’s `run-tests` toggle, and exposed the Rust SDK extension (PATH/env tweaks) so cargo-based builds succeed without a prebuilt binary.
 - [✅] 2025-11-03 — Enabled D-Bus activation for notification clicks (desktop entry + service file), updated Flatpak permissions/install steps, aligned icon naming with the app id, and trimmed unused Snap ICU libs while keeping legacy assets for Snap.
