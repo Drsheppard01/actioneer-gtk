@@ -5,6 +5,13 @@ runtime-version: "49"
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
+# Ensure cargo from the rust-stable SDK extension is available when the
+# prebuilt binary is missing and we need to compile inside the sandbox.
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /var/tmp/cargo
+    RUSTUP_HOME: /var/tmp/rustup
 # The rust extension is part of the freedesktop SDK namespace; keep the rust extension so cargo/toolchain
 # is available inside the build environment. If this extension is unavailable for the GNOME SDK in your
 # environment, try switching sdk back to org.freedesktop.Sdk and runtime-version to a freedesktop-supported
