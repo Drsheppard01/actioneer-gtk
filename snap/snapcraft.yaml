@@ -55,6 +55,7 @@ parts:
     override-build: |
       craftctl default
       install -Dm644 "$CRAFT_PART_SRC/data/me.spaceinbox.actioneer.desktop" "$SNAPCRAFT_PART_INSTALL/meta/gui/actioneer.desktop"
+      install -Dm644 "$CRAFT_PART_SRC/icons/icons/hicolor/scalable/apps/me.spaceinbox.actioneer.svg" "$SNAPCRAFT_PART_INSTALL/meta/gui/me.spaceinbox.actioneer.svg"
       install -Dm644 "$CRAFT_PART_SRC/icons/icons/hicolor/scalable/apps/actioneer.svg" "$SNAPCRAFT_PART_INSTALL/meta/gui/actioneer.svg"
 
 slots:

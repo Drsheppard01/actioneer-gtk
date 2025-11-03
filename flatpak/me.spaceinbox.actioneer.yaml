@@ -16,6 +16,8 @@ finish-args:
   - --socket=wayland
   - --socket=x11
   - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.secrets
+  - --device=dri
   # If you need persistent access to files during development, add e.g.:
   # - --filesystem=home
 
@@ -50,6 +52,7 @@ modules:
       # Copy application icons into the hicolor icon theme so AppStream and desktops can find them
       - mkdir -p /app/share/icons/hicolor
       - cp -a icons/icons/hicolor/* /app/share/icons/hicolor/
+      - find /app/share/icons/hicolor -type f -name 'actioneer.*' -delete
     sources:
       # Use the local repo directory for quick developer builds so the
       # prebuilt binary under `target/release` is available to flatpak-builder.

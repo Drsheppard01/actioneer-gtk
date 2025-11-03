@@ -34,7 +34,7 @@ Notes
 ---
 
 Recent Updates
-- [✅] 2025-11-03 — Enabled D-Bus activation for notification clicks (desktop entry + service file) and wired the Flatpak manifest to install the service.
+- [✅] 2025-11-03 — Enabled D-Bus activation for notification clicks (desktop entry + service file), updated Flatpak permissions/install steps, and aligned icon naming with the app id (kept legacy names for Snap).
 - [✅] 2025-10-30 — Replaced Docker guidance with the native Snapcraft workflow in `docs/snapcraft_ai_guide.md` to match the updated CI (`snap-publish.yml`).
 - [✅] 2025-10-29 — Switched Snapcraft builds to the `ghcr.io/canonical/snapcraft:8_core24` Docker image, updated CI to drop LXD membership hacks, refreshed `docs/snapcraft_ai_guide.md`, and kept the root symlink + `.snapcraftignore` layout intact.
 - [✅] 2025-10-28 — Hardened demo mode (hide release toggle, mock rate limits, skip token checks).

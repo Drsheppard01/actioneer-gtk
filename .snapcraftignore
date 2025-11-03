@@ -3,6 +3,8 @@
 .snapcraftignore
 snap-output/
 target/
+.flatpak-builder/
+flatpak-build/
 .git/
 .gitignore
 .idea/
