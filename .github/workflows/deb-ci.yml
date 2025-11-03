@@ -19,7 +19,7 @@ jobs:
           - arch: amd64
             runner: ubuntu-latest
             nfpm_arch: amd64
-            nfpm_pkg_arch: x86_64
+            nfpm_pkg_arch: amd64
           - arch: arm64
             runner: ubuntu-24.04-arm64
             nfpm_arch: arm64
@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           URL="https://github.com/goreleaser/nfpm/releases/latest/download/nfpm_Linux_${{ matrix.nfpm_pkg_arch }}.tar.gz"
-          curl -sSL "$URL" | tar -xz nfpm
+          curl -sSL "$URL" | tar -xz -f - nfpm
           sudo mv nfpm /usr/local/bin/nfpm
 
       - name: Build Debian package
