@@ -11,38 +11,80 @@ on:
 jobs:
   build:
     name: Build RPM (amd64 & arm64)
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-latest
+            platform: linux/amd64
+            rust_target: x86_64-unknown-linux-gnu
             nfpm_arch: x86_64
-            nfpm_pkg_arch: amd64
           - arch: arm64
-            runner: ubuntu-24.04-arm64
+            platform: linux/arm64
+            rust_target: aarch64-unknown-linux-gnu
             nfpm_arch: aarch64
-            nfpm_pkg_arch: arm64
     outputs:
       run-id: ${{ steps.expose-run-id.outputs.run_id }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system packages
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install system packages (native)
+        if: matrix.arch == 'amd64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev jq curl tar
+          sudo apt-get install -y build-essential pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev jq
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
+      - name: Install Rust toolchain (native)
+        if: matrix.arch == 'amd64'
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build release binary
+      - name: Build release binary (native)
+        if: matrix.arch == 'amd64'
         run: |
           cargo build --workspace --release --verbose
+
+      - name: Build release binary (arm64 via Docker)
+        if: matrix.arch == 'arm64'
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v $PWD:/workspace \
+            -w /workspace \
+            ubuntu:24.04 bash -c "
+              apt-get update && \
+              DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                build-essential pkg-config libglib2.0-dev libgtk-4-dev \
+                libadwaita-1-dev curl && \
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+              . \$HOME/.cargo/env && \
+              cargo build --workspace --release --verbose
+            "
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install nfpm
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Install jq (for Docker builds)
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       - name: Prepare packaging metadata
         run: |
@@ -50,13 +92,6 @@ jobs:
           VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer" ) | .version')
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "NFPM_ARCH=${{ matrix.nfpm_arch }}" >> "$GITHUB_ENV"
-
-      - name: Install nfpm
-        run: |
-          set -euo pipefail
-          URL="https://github.com/goreleaser/nfpm/releases/latest/download/nfpm_Linux_${{ matrix.nfpm_pkg_arch }}.tar.gz"
-          curl -sSL "$URL" | tar -xz -f - nfpm
-          sudo mv nfpm /usr/local/bin/nfpm
 
       - name: Build RPM package
         run: |
