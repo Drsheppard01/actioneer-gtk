@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo systemctl start snapd
           sudo snap install gtk-common-themes
-          sudo snap refresh snapcraft
+          sudo snap install snapcraft --classic
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
