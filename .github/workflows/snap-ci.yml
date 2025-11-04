@@ -37,16 +37,25 @@ jobs:
           
           set -euo pipefail
 
+          codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && printf '%s' "$VERSION_CODENAME"))
+
+          cat <<EOF | sudo tee /etc/apt/sources.list > /dev/null
+deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename} main restricted universe multiverse
+deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-updates main restricted universe multiverse
+deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-security main restricted universe multiverse
+deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-backports main restricted universe multiverse
+EOF
+
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             sudo dpkg --add-architecture arm64
-            codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && printf '%s' "$VERSION_CODENAME"))
-            printf '%s\n' \
-              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main universe multiverse restricted" \
-              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main universe multiverse restricted" \
-              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main universe multiverse restricted" \
-              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main universe multiverse restricted" \
-              | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null
-            sudo sed -i -E 's/^deb (http[^[]+)/deb [arch=amd64] \1/' /etc/apt/sources.list
+            cat <<EOF | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null
+deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main restricted universe multiverse
+deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main restricted universe multiverse
+deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main restricted universe multiverse
+deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main restricted universe multiverse
+EOF
+          else
+            sudo rm -f /etc/apt/sources.list.d/ubuntu-arm64.list
           fi
 
           sudo apt-get update
@@ -117,6 +126,7 @@ jobs:
         env:
           SNAPCRAFT_BUILD_FOR: ${{ matrix.arch }}
           CARGO_BUILD_TARGET: ${{ matrix.rust_target }}
+          SNAPCRAFT_EXTENSIONS_CHANNELS: gnome=latest/edge
         with:
           snapcraft-args: --destructive-mode --build-for=${{ matrix.arch }}
       # - name: Publish to store
