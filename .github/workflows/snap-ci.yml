@@ -34,6 +34,39 @@ jobs:
           sudo systemctl start snapd
           sudo snap install gtk-common-themes
           sudo snap install snapcraft --classic
+          
+          set -euo pipefail
+
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo dpkg --add-architecture arm64
+            codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && printf '%s' "$VERSION_CODENAME"))
+            printf '%s\n' \
+              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main universe multiverse restricted" \
+              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main universe multiverse restricted" \
+              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main universe multiverse restricted" \
+              "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main universe multiverse restricted" \
+              | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null
+            sudo sed -i -E 's/^deb (http[^[]+)/deb [arch=amd64] \1/' /etc/apt/sources.list
+          fi
+
+          sudo apt-get update
+          # Match the CI environment: GTK4 and libadwaita dev libs are required to build the native parts
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-4-dev \
+            libadwaita-1-dev \
+            libssl-dev
+
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y --no-install-recommends \
+              gcc-aarch64-linux-gnu \
+              libglib2.0-dev:arm64 \
+              libgtk-4-dev:arm64 \
+              libadwaita-1-dev:arm64 \
+              libssl-dev:arm64
+          fi
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
