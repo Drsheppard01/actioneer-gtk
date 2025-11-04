@@ -7,159 +7,39 @@ name: Snap CI
     outputs:
       run-id:
         description: GitHub run id that produced the Snap artifacts
-        value: ${{ jobs.build-and-publish.outputs.run-id }}
-
-env:
-  CARGO_TERM_COLOR: "always"
+        value: ${{ jobs.build.outputs.run-id }}
 
 jobs:
-  build-and-publish:
-    name: Build snap (amd64 & arm64)
+  build:
+    name: Build snap (${{ matrix.platform }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            rust_target: x86_64-unknown-linux-gnu
-          - arch: arm64
-            rust_target: aarch64-unknown-linux-gnu
+        platform: [amd64, arm64]
     outputs:
       run-id: ${{ steps.expose-run-id.outputs.run_id }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system packages (GTK & build deps)
-        run: |
-          sudo systemctl start snapd
-          sudo snap install gtk-common-themes
-          sudo snap install snapcraft --classic
-          set -euo pipefail
-
-          codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && printf '%s' "$VERSION_CODENAME"))
-
-          cat <<EOF | sudo tee /etc/apt/sources.list > /dev/null
-            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename} main restricted universe multiverse
-            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-updates main restricted universe multiverse
-            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-security main restricted universe multiverse
-            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-backports main restricted universe multiverse
-            EOF
-
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo dpkg --add-architecture arm64
-            cat <<EOF | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null
-              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main restricted universe multiverse
-              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main restricted universe multiverse
-              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main restricted universe multiverse
-              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main restricted universe multiverse
-              EOF
-          else
-            sudo rm -f /etc/apt/sources.list.d/ubuntu-arm64.list
-          fi
-
-          sudo apt-get update
-          # Match the CI environment: GTK4 and libadwaita dev libs are required to build the native parts
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            pkg-config \
-            libglib2.0-dev \
-            libgtk-4-dev \
-            libadwaita-1-dev \
-            libssl-dev
-
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo apt-get install -y --no-install-recommends \
-              gcc-aarch64-linux-gnu \
-              libglib2.0-dev:arm64 \
-              libgtk-4-dev:arm64 \
-              libadwaita-1-dev:arm64 \
-              libssl-dev:arm64
-          fi
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          target: ${{ matrix.rust_target }}
-
-      - name: Configure cross compilation env (arm64)
-        if: matrix.arch == 'arm64'
-        run: |
-          {
-            echo "PKG_CONFIG_ALLOW_CROSS=1"
-            echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1"
-            echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
-            echo "PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
-            echo "PKG_CONFIG_SYSROOT_DIR=/"
-            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
-            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
-            echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar"
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
-            echo "OPENSSL_DIR=/usr/aarch64-linux-gnu"
-            echo "OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu"
-            echo "OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu"
-            echo "OPENSSL_NO_VENDOR=1"
-          } >> "$GITHUB_ENV"
-
-      - name: Configure pkg-config env (amd64)
-        if: matrix.arch == 'amd64'
-        run: |
-          # Only set PKG_CONFIG_PATH (avoid over-constraining pkg-config via PKG_CONFIG_LIBDIR)
-          # PKG_CONFIG_LIBDIR can hide system dirs; PKG_CONFIG_PATH is sufficient here.
-          {
-            echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1"
-            echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:/usr/lib/pkgconfig"
-            echo "PKG_CONFIG_SYSROOT_DIR=/"
-          } >> "$GITHUB_ENV"
-
-      - name: Debug pkg-config & installed .pc files
-        run: |
-          set -euo pipefail
-          echo "Runner arch: $(uname -m)"
-          echo "PKG_CONFIG environment variables:"
-          env | grep -E '^PKG_CONFIG' || true
-          echo
-          echo "pkg-config version:"
-          pkg-config --version || true
-          echo
-          echo "List a few .pc files where we expect glib/gobject:"
-          ls -l /usr/lib/x86_64-linux-gnu/pkgconfig 2>/dev/null | grep -E 'glib|gobject' || true
-          ls -l /usr/share/pkgconfig 2>/dev/null | grep -E 'glib|gobject' || true
-          echo
-          echo "Try pkg-config queries:"
-          pkg-config --modversion glib-2.0 || true
-          pkg-config --modversion gobject-2.0 || true
-          pkg-config --cflags --libs glib-2.0 || true
-          pkg-config --cflags --libs gobject-2.0 || true
-
-      - name: Cache cargo (target + registry)
-        uses: actions/cache@v4
-        with:
-          path: |
-            target
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ubuntu-latest-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.arch }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build Rust release
-        run: |
-          set -euo pipefail
-          echo "Building for arch=${{ matrix.arch }} with target=${{ matrix.rust_target }}"
-          cargo build --workspace --release --target ${{ matrix.rust_target }} --verbose
-
-      - name: Snap pack
+      - name: Build snap for ${{ matrix.platform }}
         uses: snapcore/action-build@v1
         id: build
-        env:
-          SNAPCRAFT_BUILD_FOR: ${{ matrix.arch }}
-          CARGO_BUILD_TARGET: ${{ matrix.rust_target }}
-          SNAPCRAFT_EXTENSIONS_CHANNELS: gnome=latest/edge
         with:
-          snapcraft-args: --destructive-mode --build-for=${{ matrix.arch }}
+          snapcraft-args: --build-for=${{ matrix.platform }}
+
+      - name: Upload snap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snap-${{ matrix.platform }}
+          path: ${{ steps.build.outputs.snap }}
+          compression-level: 0
+
+      - name: Expose workflow run id
+        id: expose-run-id
+        run: echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+
       # - name: Publish to store
       #   uses: snapcore/action-publish@v1
       #   env:
@@ -167,14 +47,3 @@ jobs:
       #   with:
       #     snap: ${{ steps.build.outputs.snap }}
       #     release: stable
-
-      - name: Upload Snap artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: snap-${{ matrix.arch }}
-          path: ${{ steps.build.outputs.snap }}
-          compression-level: 0
-
-      - name: Expose workflow run id
-        id: expose-run-id
-        run: echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"

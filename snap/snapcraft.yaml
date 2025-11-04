@@ -18,8 +18,10 @@ website: https://github.com/makoni/actioneer-gtk
 platforms:
   amd64:
     build-on: [amd64]
+    build-for: [amd64]
   arm64:
-    build-on: [arm64]
+    build-on: [amd64, arm64]
+    build-for: [arm64]
 
 apps:
   actioneer:
@@ -48,6 +50,11 @@ parts:
       - libgtk-4-dev
       - libssl-dev
       - pkg-config
+      - on amd64 to arm64:
+        - gcc-aarch64-linux-gnu
+        - libadwaita-1-dev:arm64
+        - libgtk-4-dev:arm64
+        - libssl-dev:arm64
     stage-packages:
       - libadwaita-1-0
       - libgtk-4-1
@@ -61,6 +68,8 @@ parts:
       # Drop development-only ICU helpers that trigger snap lint warnings but aren't needed at runtime
       - -usr/lib/aarch64-linux-gnu/libicutest.so.74.2
       - -usr/lib/aarch64-linux-gnu/libicuio.so.74.2
+      - -usr/lib/x86_64-linux-gnu/libicutest.so.*
+      - -usr/lib/x86_64-linux-gnu/libicuio.so.*
 
 slots:
   session-dbus-actioneer:
