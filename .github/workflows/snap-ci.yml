@@ -1,6 +1,7 @@
+---
 name: Snap CI
 
-on:
+"on":
   workflow_dispatch:
   workflow_call:
     outputs:
@@ -9,7 +10,7 @@ on:
         value: ${{ jobs.build-and-publish.outputs.run-id }}
 
 env:
-  CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: "always"
 
 jobs:
   build-and-publish:
@@ -34,26 +35,25 @@ jobs:
           sudo systemctl start snapd
           sudo snap install gtk-common-themes
           sudo snap install snapcraft --classic
-          
           set -euo pipefail
 
           codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && printf '%s' "$VERSION_CODENAME"))
 
           cat <<EOF | sudo tee /etc/apt/sources.list > /dev/null
-deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename} main restricted universe multiverse
-deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-updates main restricted universe multiverse
-deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-security main restricted universe multiverse
-deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-backports main restricted universe multiverse
-EOF
+            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename} main restricted universe multiverse
+            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-updates main restricted universe multiverse
+            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-security main restricted universe multiverse
+            deb [arch=amd64] http://archive.ubuntu.com/ubuntu ${codename}-backports main restricted universe multiverse
+            EOF
 
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             sudo dpkg --add-architecture arm64
             cat <<EOF | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main restricted universe multiverse
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main restricted universe multiverse
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main restricted universe multiverse
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main restricted universe multiverse
-EOF
+              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main restricted universe multiverse
+              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main restricted universe multiverse
+              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main restricted universe multiverse
+              deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main restricted universe multiverse
+              EOF
           else
             sudo rm -f /etc/apt/sources.list.d/ubuntu-arm64.list
           fi
