@@ -70,6 +70,25 @@ jobs:
               cargo build --workspace --release --verbose
             "
 
+      - name: Install cargo and jq (for metadata extraction)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            source $HOME/.cargo/env
+          fi
+
+      - name: Prepare packaging metadata
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            source $HOME/.cargo/env
+          fi
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer" ) | .version')
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "NFPM_ARCH=${{ matrix.nfpm_arch }}" >> "$GITHUB_ENV"
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -79,19 +98,6 @@ jobs:
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           echo "$HOME/go/bin" >> $GITHUB_PATH
-
-      - name: Install jq (for Docker builds)
-        if: matrix.arch == 'arm64'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      - name: Prepare packaging metadata
-        run: |
-          set -euo pipefail
-          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer" ) | .version')
-          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "NFPM_ARCH=${{ matrix.nfpm_arch }}" >> "$GITHUB_ENV"
 
       - name: Build RPM package
         run: |
