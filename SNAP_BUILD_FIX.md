@@ -85,10 +85,12 @@ build-packages:
   - pkg-config
   - on amd64 to arm64:          # Only when cross-compiling
     - gcc-aarch64-linux-gnu
-    - libadwaita-1-dev:arm64
-    - libgtk-4-dev:arm64
-    - libssl-dev:arm64
+    - libadwaita-1-dev         # No :arm64 suffix - snapcraft handles architecture
+    - libgtk-4-dev
+    - libssl-dev
 ```
+
+**Note:** Architecture suffixes (`:arm64`) are not needed in the conditional block because snapcraft automatically fetches packages for the target architecture when cross-compiling.
 
 ## How Cross-Compilation Works Now
 
