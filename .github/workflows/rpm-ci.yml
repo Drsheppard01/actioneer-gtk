@@ -70,20 +70,24 @@ jobs:
               cargo build --workspace --release --verbose
             "
 
-      - name: Install cargo and jq (for metadata extraction)
+      - name: Install jq and setup cargo (for metadata extraction)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            # For amd64, jq was already installed with system packages
+            :
+          else
+            # For arm64, we need jq and cargo on the host for metadata extraction
+            sudo apt-get update
+            sudo apt-get install -y jq
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-            source "$HOME/.cargo/env"
           fi
 
       - name: Prepare packaging metadata
         run: |
           set -euo pipefail
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            source "$HOME/.cargo/env"
+            # shellcheck disable=SC1091
+            source "\$HOME/.cargo/env"
           fi
           VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer" ) | .version')
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
