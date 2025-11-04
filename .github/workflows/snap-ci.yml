@@ -23,14 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Enable qemu and register arm64 multiarch on the runner so apt can resolve :arm64 packages
-      - name: Enable qemu and add arm64 architecture (for cross-build)
-        if: matrix.platform == 'arm64'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-user-static binfmt-support
-          sudo dpkg --add-architecture arm64
-
       - name: Build snap for ${{ matrix.platform }}
         uses: snapcore/action-build@v1
         id: build

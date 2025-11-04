@@ -52,9 +52,9 @@ parts:
       - pkg-config
       - on amd64 to arm64:
         - gcc-aarch64-linux-gnu
-        - libadwaita-1-dev:arm64
-        - libgtk-4-dev:arm64
-        - libssl-dev:arm64
+        - libadwaita-1-dev
+        - libgtk-4-dev
+        - libssl-dev
     stage-packages:
       - libadwaita-1-0
       - libgtk-4-1
