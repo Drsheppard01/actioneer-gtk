@@ -103,6 +103,16 @@ jobs:
             echo "OPENSSL_NO_VENDOR=1"
           } >> "$GITHUB_ENV"
 
+      - name: Configure pkg-config env (amd64)
+        if: matrix.arch == 'amd64'
+        run: |
+          {
+            echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1"
+            echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+            echo "PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
+            echo "PKG_CONFIG_SYSROOT_DIR=/"
+          } >> "$GITHUB_ENV"
+
       - name: Cache cargo (target + registry)
         uses: actions/cache@v4
         with:
