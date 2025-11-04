@@ -37,11 +37,11 @@ jobs:
             sudo dpkg --add-architecture arm64
             codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && printf '%s' "$VERSION_CODENAME"))
             sudo tee /etc/apt/sources.list.d/ubuntu-arm64.list > /dev/null <<EOF
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main universe multiverse restricted
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main universe multiverse restricted
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main universe multiverse restricted
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main universe multiverse restricted
-EOF
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename} main universe multiverse restricted
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-updates main universe multiverse restricted
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-security main universe multiverse restricted
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${codename}-backports main universe multiverse restricted
+            EOF
             sudo sed -i -E 's/^deb (http[^[]+)/deb [arch=amd64] \1/' /etc/apt/sources.list
           fi
 
