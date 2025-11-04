@@ -22,7 +22,7 @@ jobs:
             runs-on: ubuntu-latest
           - arch: arm64
             # Use the arm64 hosted runner label. Adjust this label if your organization uses a different one.
-            runs-on: ubuntu-24.04-arm64
+            runs-on: ubuntu-22.04-arm64
     outputs:
       run-id: ${{ steps.expose-run-id.outputs.run_id }}
 
