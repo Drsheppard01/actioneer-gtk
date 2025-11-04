@@ -37,15 +37,22 @@ jobs:
         run: |
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           sudo dpkg --add-architecture arm64
-          # Restrict all existing repos to amd64 only (both main file and sources.list.d)
-          sudo sed -i 's/^deb \(http\|https\)/deb [arch=amd64] \1/g' /etc/apt/sources.list
-          sudo sed -i 's/^deb-src \(http\|https\)/deb-src [arch=amd64] \1/g' /etc/apt/sources.list
-          sudo find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's/^deb \(http\|https\)/deb [arch=amd64] \1/g' {} \;
-          sudo find /etc/apt/sources.list.d/ -name "*.list" -exec sed -i 's/^deb-src \(http\|https\)/deb-src [arch=amd64] \1/g' {} \;
+          # Completely replace apt sources to avoid any arm64 queries to non-ports repos
+          sudo mv /etc/apt/sources.list /etc/apt/sources.list.bak
+          sudo rm -f /etc/apt/sources.list.d/*.list
+          # Create new sources.list with amd64 only from standard repos
+          cat <<EOF | sudo tee /etc/apt/sources.list
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu $(lsb_release -cs) main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-updates main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu $(lsb_release -cs)-backports main restricted universe multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu $(lsb_release -cs)-security main restricted universe multiverse
+          EOF
           # Add arm64 ports repository
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-security main universe" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64.list
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-security main universe
+          EOF
           sudo apt-get update
           sudo apt-get install -y \
             libglib2.0-dev:arm64 \
