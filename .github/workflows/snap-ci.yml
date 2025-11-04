@@ -90,7 +90,7 @@ jobs:
           {
             echo "PKG_CONFIG_ALLOW_CROSS=1"
             echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1"
-            echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig"
+            echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
             echo "PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
             echo "PKG_CONFIG_SYSROOT_DIR=/"
             echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
@@ -106,12 +106,33 @@ jobs:
       - name: Configure pkg-config env (amd64)
         if: matrix.arch == 'amd64'
         run: |
+          # Only set PKG_CONFIG_PATH (avoid over-constraining pkg-config via PKG_CONFIG_LIBDIR)
+          # PKG_CONFIG_LIBDIR can hide system dirs; PKG_CONFIG_PATH is sufficient here.
           {
             echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1"
-            echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
-            echo "PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
+            echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:/usr/lib/pkgconfig"
             echo "PKG_CONFIG_SYSROOT_DIR=/"
           } >> "$GITHUB_ENV"
+
+      - name: Debug pkg-config & installed .pc files
+        run: |
+          set -euo pipefail
+          echo "Runner arch: $(uname -m)"
+          echo "PKG_CONFIG environment variables:"
+          env | grep -E '^PKG_CONFIG' || true
+          echo
+          echo "pkg-config version:"
+          pkg-config --version || true
+          echo
+          echo "List a few .pc files where we expect glib/gobject:"
+          ls -l /usr/lib/x86_64-linux-gnu/pkgconfig 2>/dev/null | grep -E 'glib|gobject' || true
+          ls -l /usr/share/pkgconfig 2>/dev/null | grep -E 'glib|gobject' || true
+          echo
+          echo "Try pkg-config queries:"
+          pkg-config --modversion glib-2.0 || true
+          pkg-config --modversion gobject-2.0 || true
+          pkg-config --cflags --libs glib-2.0 || true
+          pkg-config --cflags --libs gobject-2.0 || true
 
       - name: Cache cargo (target + registry)
         uses: actions/cache@v4
