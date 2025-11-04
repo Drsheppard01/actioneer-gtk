@@ -18,11 +18,9 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
-            rust_target: x86_64-unknown-linux-gnu
             nfpm_arch: x86_64
           - arch: arm64
             platform: linux/arm64
-            rust_target: aarch64-unknown-linux-gnu
             nfpm_arch: aarch64
     outputs:
       run-id: ${{ steps.expose-run-id.outputs.run_id }}
@@ -87,7 +85,7 @@ jobs:
           set -euo pipefail
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             # shellcheck disable=SC1091
-            source "\$HOME/.cargo/env"
+            source "$HOME/.cargo/env"
           fi
           VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer" ) | .version')
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
