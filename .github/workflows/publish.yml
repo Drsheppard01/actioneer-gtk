@@ -26,16 +26,8 @@ jobs:
     uses: ./.github/workflows/appimage-ci.yml
     secrets: inherit
 
-  deb:
-    uses: ./.github/workflows/deb-ci.yml
-    secrets: inherit
-
-  rpm:
-    uses: ./.github/workflows/rpm-ci.yml
-    secrets: inherit
-
   release:
-    needs: [flatpak, snap, appimage, deb, rpm]
+    needs: [flatpak, snap, appimage]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,20 +52,6 @@ jobs:
           path: artifacts/appimage
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ needs.appimage.outputs.run-id }}
-
-      - name: Download Debian artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/deb
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ needs.deb.outputs.run-id }}
-
-      - name: Download RPM artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/rpm
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ needs.rpm.outputs.run-id }}
 
       - name: Collect release assets
         id: collect

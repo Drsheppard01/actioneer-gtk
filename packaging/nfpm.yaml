@@ -4,7 +4,7 @@ platform: linux
 version: "{{ .Env.APP_VERSION }}"
 section: utils
 priority: extra
-maintainer: Sergey Armodin <sergey@armodin.dev>
+maintainer: Sergey Armodin <hello@spaceinbox.me>
 description: |
   GitHub Actions client for Linux (GNOME)
 license: MIT
