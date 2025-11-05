@@ -43,6 +43,18 @@ jobs:
           cargo generate-lockfile
           cargo vendor --locked --versioned-dirs vendor
 
+      - name: Get app version
+        id: get_version
+        shell: bash
+        run: |
+          # Extract the version from the [package] section of Cargo.toml
+          version=$(awk -F '"' '/^\[package\]/{p=1} p && /^version/ {print $2; exit}' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "Could not determine version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
@@ -64,16 +76,15 @@ jobs:
             echo "Bundle not found" >&2
             exit 1
           fi
-          dest="dist/actioneer-${{ matrix.arch }}.flatpak"
+          dest="dist/actioneer-${{ steps.get_version.outputs.version }}-${{ matrix.arch }}.flatpak"
           mv "$bundle" "$dest"
           echo "bundle_path=$dest" >> "$GITHUB_OUTPUT"
 
       - name: Upload Flatpak artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          name: flatpak-${{ matrix.arch }}
+          name: actioneer-${{ steps.get_version.outputs.version }}-${{ matrix.arch }}.flatpak
           path: ${{ steps.collect-bundle.outputs.bundle_path }}
-          compression-level: 0
 
       - name: Expose workflow run id
         id: expose-run-id
