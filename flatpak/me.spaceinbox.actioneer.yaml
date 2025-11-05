@@ -31,40 +31,31 @@ modules:
   - name: actioneer
     buildsystem: simple
     build-commands:
-      # For local developer builds we install a prebuilt binary from the repo's
-      # `target/release` directory. This avoids needing cargo inside the SDK
-      # when testing packaging locally. For Flathub submission the manifest
-      # should be reverted to build from source.
+      # Build from source for Flathub submission. This manifest expects the
+      # repository to include a vendored Cargo registry at `vendor/` so that
+      # builds are hermetic and do not require network access. Before
+      # submitting a PR to Flathub, run:
+      #
+      #   cargo vendor --versioned-dirs vendor
+      #
+      # and commit the resulting `vendor/` directory. The build will fail
+      # loudly if `vendor/` is missing to remind contributors to add it.
       - |-
-        PREBUILT=""
-        for candidate in target/release/actioneer ../target/release/actioneer; do
-          if [ -x "$candidate" ]; then
-            PREBUILT="$candidate"
-            break
-          fi
-        done
-
-        if [ -n "$PREBUILT" ]; then
-          install -Dm755 "$PREBUILT" /app/bin/actioneer
-        else
-          echo "Prebuilt binary not found; attempting in-SDK build"
-          if [ ! -d vendor ]; then
-            echo "Vendored dependencies missing; run 'cargo vendor --versioned-dirs vendor' before building." >&2
-            exit 1
-          fi
-          if [ ! -f .cargo/config.toml ]; then
-            mkdir -p .cargo
-            printf '%s\n' \
-              '[source.crates-io]' \
-              'replace-with = "vendored-sources"' \
-              '' \
-              '[source.vendored-sources]' \
-              'directory = "vendor"' \
-              > .cargo/config.toml
-          fi
+        if [ -d vendor ]; then
+          mkdir -p .cargo
+          printf '%s\n' \
+            '[source.crates-io]' \
+            'replace-with = "vendored-sources"' \
+            '' \
+            '[source.vendored-sources]' \
+            'directory = "vendor"' \
+            > .cargo/config.toml
           cargo fetch --locked --offline
           cargo build --release --locked --offline
           install -Dm755 target/release/actioneer /app/bin/actioneer
+        else
+          echo "Vendored dependencies not found; run 'cargo vendor --versioned-dirs vendor' and commit the vendor/ directory before submitting to Flathub." >&2
+          exit 1
         fi
       # Install desktop file, D-Bus service, and AppStream metadata so Flatpak/desktop environments discover the app
       - install -Dm644 data/me.spaceinbox.actioneer.desktop /app/share/applications/me.spaceinbox.actioneer.desktop
@@ -75,10 +66,12 @@ modules:
       - cp -a icons/icons/hicolor/* /app/share/icons/hicolor/
       - find /app/share/icons/hicolor -type f -name 'actioneer.*' -delete
     sources:
-      # Use the local repo directory for quick developer builds so the
-      # prebuilt binary under `target/release` is available to flatpak-builder.
-      - type: dir
-        path: ..
+      # For Flathub submission the source should be a pinned git checkout
+      # instead of a local dir. We pin to the current commit; update this
+      # to a release tag if you prefer to track a tag instead.
+      - type: git
+        url: https://github.com/makoni/Actioneer-gtk.git
+        commit: 4eb30f5eb9c16799b7968ae6d7811abbc82b09ba
 
 # Notes:
 # - This is a starter manifest for local development and testing. For Flathub submission you should
