@@ -36,7 +36,12 @@ modules:
       # still producing reproducible builds on Flathub (the manifest is
       # pinned to a commit and Cargo.lock is used by `cargo vendor`).
       - cargo generate-lockfile --manifest-path Cargo.toml
-      - cargo vendor --locked --versioned-dirs vendor
+      - |-
+        if [ -d vendor ]; then
+          echo "vendor/ exists; skipping cargo vendor (local test)"
+        else
+          cargo vendor --locked --versioned-dirs vendor
+        fi
       - |-
         mkdir -p .cargo
         cat > .cargo/config.toml <<'EOF'
