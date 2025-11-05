@@ -18,8 +18,9 @@ jobs:
         include:
           - arch: x86_64
             runner: ubuntu-latest
-          - arch: aarch64
-            runner: ubuntu-24.04-arm64
+          # Temporarily disable the arm64 build until dedicated runners are available again.
+          # - arch: aarch64
+          #   runner: ubuntu-24.04-arm64
     outputs:
       run-id: ${{ steps.expose-run-id.outputs.run_id }}
     container:
@@ -42,6 +43,11 @@ jobs:
           rm -rf vendor
           cargo generate-lockfile
           cargo vendor --locked --versioned-dirs vendor
+
+      - name: Validate AppStream metadata
+        shell: bash
+        run: |
+          flatpak run --command=appstreamcli org.flatpak.Builder validate data/metainfo.xml
 
       - name: Get app version
         id: get_version
