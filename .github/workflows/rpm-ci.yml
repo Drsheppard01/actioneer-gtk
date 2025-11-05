@@ -28,77 +28,116 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU for arm64 cross-compilation
+      # --- AMD64 Build Steps (run directly on host) ---
+      - name: Install amd64 dependencies
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-4-dev \
+            libadwaita-1-dev \
+            libssl-dev \
+            jq
+
+      - name: Install Rust toolchain (amd64)
+        if: matrix.arch == 'amd64'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Build release binary (amd64)
+        if: matrix.arch == 'amd64'
+        run: cargo build --workspace --release --target ${{ matrix.rust_target }}
+
+      # --- ARM64 Build Steps (run inside a container) ---
+      - name: Set up QEMU for arm64
         if: matrix.arch == 'arm64'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Install dependencies
+      - name: Build and package for arm64 in container
+        if: matrix.arch == 'arm64'
         run: |
-          sudo apt-get update
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            sudo dpkg --add-architecture arm64
-            sudo apt-get update
-            sudo apt-get install -y \
-              build-essential \
-              pkg-config \
-              gcc-aarch64-linux-gnu \
-              g++-aarch64-linux-gnu \
-              libglib2.0-dev:arm64 \
-              libgtk-4-dev:arm64 \
-              libadwaita-1-dev:arm64 \
-              libssl-dev:arm64 \
-              jq
-          else
-            sudo apt-get install -y \
+          docker run --rm --volume "./:/app" --workdir "/app" arm64v8/ubuntu:22.04 /bin/bash -c ' 
+            set -e
+            
+            # 1. Install dependencies inside container
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y \
               build-essential \
               pkg-config \
               libglib2.0-dev \
               libgtk-4-dev \
               libadwaita-1-dev \
               libssl-dev \
-              jq
-          fi
+              jq \
+              curl \
+              golang-go
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
+            # 2. Install Rust inside container
+            curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source "$HOME/.cargo/env"
+            rustup target add aarch64-unknown-linux-gnu
 
-      - name: Configure cross-compilation for arm64
-        if: matrix.arch == 'arm64'
-        run: |
-          mkdir -p .cargo
-          cat >> .cargo/config.toml << 'EOF'
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
-          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> "$GITHUB_ENV"
+            # 3. Configure linker for cross-compilation
+            mkdir -p .cargo
+            cat >> .cargo/config.toml << EOF
+            [target.aarch64-unknown-linux-gnu]
+            linker = "gcc"
+            EOF
 
-      - name: Build release binary
-        run: cargo build --workspace --release --target ${{ matrix.rust_target }}
+            # 4. Build release binary
+            cargo build --workspace --release --target aarch64-unknown-linux-gnu
 
-      - name: Prepare for packaging
+            # 5. Prepare for packaging
+            mkdir -p target/release
+            cp target/aarch64-unknown-linux-gnu/release/actioneer target/release/actioneer
+
+            # 6. Prepare packaging metadata
+            VERSION=$(cargo metadata --format-version 1 | jq -r ".packages[] | select(.name==\"actioneer\") | .version")
+            export APP_VERSION=$VERSION
+            export NFPM_ARCH=aarch64
+
+            # 7. Build RPM package
+            mkdir -p dist
+            go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+            /root/go/bin/nfpm package --config packaging/nfpm.yaml --packager rpm --target dist
+            
+            # 8. Rename artifact
+            rpm_file=$(find dist -name "*.rpm" -print -quit)
+            mv "$rpm_file" "dist/actioneer-arm64.rpm"
+          '
+
+      # --- Common Steps ---
+      - name: Prepare for packaging (amd64)
+        if: matrix.arch == 'amd64'
         run: |
           mkdir -p target/release
           cp target/${{ matrix.rust_target }}/release/actioneer target/release/actioneer
 
       - name: Prepare packaging metadata
         run: |
-          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer") | .version')
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name=="actioneer" ) | .version')
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "NFPM_ARCH=${{ matrix.nfpm_arch }}" >> "$GITHUB_ENV"
 
       - name: Set up Go
+        if: matrix.arch == 'amd64'
         uses: actions/setup-go@v5
         with:
           go-version: 'stable'
 
       - name: Install nfpm
+        if: matrix.arch == 'amd64'
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
-      - name: Build RPM package
+      - name: Build RPM package (amd64)
+        if: matrix.arch == 'amd64'
         run: |
           mkdir -p dist
           ~/go/bin/nfpm package --config packaging/nfpm.yaml --packager rpm --target dist
