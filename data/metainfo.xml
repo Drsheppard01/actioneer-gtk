@@ -21,16 +21,17 @@
       <li>In-memory caching and efficient refresh make the app responsive while respecting GitHub rate limits.</li>
     </ul>
 
-    <p>This package contains the desktop application, icons and AppStream metadata required for
-    distribution via Flatpak/Flathub. See the project repository for source code, contribution
-    guidelines and additional documentation:</p>
-
-    <p>https://github.com/makoni/actioneer-gtk</p>
+  <p>This package contains the desktop application, icons and AppStream metadata required for
+  distribution via Flatpak/Flathub. See the project repository for source code, contribution
+  guidelines, and additional documentation.</p>
   </description>
 
   <project_license>MIT</project_license>
   <url type="homepage">https://github.com/makoni/actioneer-gtk</url>
-  <developer_name>Sergey Armodin</developer_name>
+  <developer id="com.spaceinbox">
+    <name>Sergey Armodin</name>
+    <url>https://spaceinbox.com</url>
+  </developer>
 
   <!-- Content rating and categories -->
   <content_rating type="oars-1.1" />
@@ -46,15 +47,19 @@
   <screenshots>
     <!-- Referencing screenshots added under data/screenshots/ -->
     <screenshot type="default">
+      <caption>Browse Actions workflows.</caption>
       <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/1.png</image>
     </screenshot>
     <screenshot type="detail">
+      <caption>Inspect workflow runs and drill into job details quickly.</caption>
       <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/2.png</image>
     </screenshot>
     <screenshot type="detail">
+      <caption>Review job logs inline without leaving the app.</caption>
       <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/3.png</image>
     </screenshot>
     <screenshot type="detail">
+      <caption>Run a job on any branch.</caption>
       <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/4.png</image>
     </screenshot>
   </screenshots>
