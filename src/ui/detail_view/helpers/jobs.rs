@@ -435,21 +435,17 @@ mod tests {
         while let Some(widget) = child {
             child_count += 1;
 
-            if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
-                if label.text().contains("Test Job") {
-                    has_job_name = true;
-                    assert!(label.hexpands());
-                    assert_eq!(label.halign(), gtk::Align::Start);
-                }
+            if let Ok(label) = widget.clone().downcast::<gtk::Label>() && label.text().contains("Test Job") {
+                has_job_name = true;
+                assert!(label.hexpands());
+                assert_eq!(label.halign(), gtk::Align::Start);
             }
 
-            if let Ok(box_widget) = widget.clone().downcast::<gtk::Box>() {
-                if child_count > 2 {
-                    has_right_box = true;
-                    assert_eq!(box_widget.halign(), gtk::Align::End);
-                    assert_eq!(box_widget.valign(), gtk::Align::Center);
-                    assert!(!box_widget.hexpands());
-                }
+            if let Ok(box_widget) = widget.clone().downcast::<gtk::Box>() && child_count > 2 {
+                has_right_box = true;
+                assert_eq!(box_widget.halign(), gtk::Align::End);
+                assert_eq!(box_widget.valign(), gtk::Align::Center);
+                assert!(!box_widget.hexpands());
             }
 
             child = widget.next_sibling();

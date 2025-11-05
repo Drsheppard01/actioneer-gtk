@@ -105,12 +105,10 @@ impl GitHubClient {
         ref_name: &str,
         inputs: Option<serde_json::Value>,
     ) -> Result<(), GitHubError> {
-        if let Ok(id) = workflow_id.parse::<i64>() {
-            if demo::is_active() {
-                // Demo inputs are ignored; simulate dispatch immediately
-                demo::dispatch_workflow(owner, repo, id, ref_name)?;
-                return Ok(());
-            }
+        if let Ok(id) = workflow_id.parse::<i64>() && demo::is_active() {
+            // Demo inputs are ignored; simulate dispatch immediately
+            demo::dispatch_workflow(owner, repo, id, ref_name)?;
+            return Ok(());
         }
 
         workflows::dispatch_workflow(

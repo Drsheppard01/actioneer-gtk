@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use gtk4 as gtk;
 use libadwaita as adw;
 use std::sync::{Mutex, OnceLock};
@@ -36,12 +34,10 @@ impl GtkTestGuard {
             return None;
         }
 
-        if !gtk::is_initialized() {
-            if let Err(err) = gtk::init() {
-                eprintln!("Skipping {test_name}: failed to init GTK ({err})");
-                drop(guard);
-                return None;
-            }
+        if !gtk::is_initialized() && let Err(err) = gtk::init() {
+            eprintln!("Skipping {test_name}: failed to init GTK ({err})");
+            drop(guard);
+            return None;
         }
 
         if let Err(err) = adw::init() {
