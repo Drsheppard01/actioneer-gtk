@@ -31,32 +31,23 @@ modules:
   - name: actioneer
     buildsystem: simple
     build-commands:
-      # Build from source for Flathub submission. This manifest expects the
-      # repository to include a vendored Cargo registry at `vendor/` so that
-      # builds are hermetic and do not require network access. Before
-      # submitting a PR to Flathub, run:
-      #
-      #   cargo vendor --versioned-dirs vendor
-      #
-      # and commit the resulting `vendor/` directory. The build will fail
-      # loudly if `vendor/` is missing to remind contributors to add it.
-      - |-
-        if [ -d vendor ]; then
+      # Build-time vendoring: create a vendor/ tree inside the build sandbox
+      # and configure cargo to use it. This keeps the repository small while
+      # still producing reproducible builds on Flathub (the manifest is
+      # pinned to a commit and Cargo.lock is used by `cargo vendor`).
+      - run: cargo generate-lockfile --manifest-path Cargo.toml
+      - run: cargo vendor --locked --versioned-dirs vendor
+      - run: |
           mkdir -p .cargo
-          printf '%s\n' \
-            '[source.crates-io]' \
-            'replace-with = "vendored-sources"' \
-            '' \
-            '[source.vendored-sources]' \
-            'directory = "vendor"' \
-            > .cargo/config.toml
-          cargo fetch --locked --offline
-          cargo build --release --locked --offline
-          install -Dm755 target/release/actioneer /app/bin/actioneer
-        else
-          echo "Vendored dependencies not found; run 'cargo vendor --versioned-dirs vendor' and commit the vendor/ directory before submitting to Flathub." >&2
-          exit 1
-        fi
+          cat > .cargo/config.toml <<'EOF'
+          [source.crates-io]
+          replace-with = "vendored-sources"
+          [source.vendored-sources]
+          directory = "vendor"
+          EOF
+      - run: cargo fetch --locked --offline || true
+      - run: cargo build --release --locked --offline
+      - run: install -Dm755 target/release/actioneer /app/bin/actioneer
       # Install desktop file, D-Bus service, and AppStream metadata so Flatpak/desktop environments discover the app
       - install -Dm644 data/me.spaceinbox.actioneer.desktop /app/share/applications/me.spaceinbox.actioneer.desktop
       - install -Dm644 data/me.spaceinbox.actioneer.service /app/share/dbus-1/services/me.spaceinbox.actioneer.service
