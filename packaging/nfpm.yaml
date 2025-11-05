@@ -16,7 +16,6 @@ depends:
 contents:
   - src: target/release/actioneer
     dst: /usr/bin/actioneer
-    type: binary
   - src: data/me.spaceinbox.actioneer.desktop
     dst: /usr/share/applications/me.spaceinbox.actioneer.desktop
   - src: data/me.spaceinbox.actioneer.service
@@ -28,6 +27,5 @@ contents:
     type: dir
   - src: LICENSE
     dst: /usr/share/licenses/actioneer/LICENSE
-    type: file
 rpm:
 deb:
