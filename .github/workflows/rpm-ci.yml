@@ -86,10 +86,10 @@ jobs:
 
             # 3. Configure linker for cross-compilation
             mkdir -p .cargo
-            cat >> .cargo/config.toml << EOF
+            cat >> .cargo/config.toml << 'TOML_EOF'
             [target.aarch64-unknown-linux-gnu]
             linker = "gcc"
-            EOF
+            TOML_EOF
 
             # 4. Build release binary
             cargo build --workspace --release --target aarch64-unknown-linux-gnu
