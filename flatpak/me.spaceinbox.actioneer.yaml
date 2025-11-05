@@ -35,19 +35,19 @@ modules:
       # and configure cargo to use it. This keeps the repository small while
       # still producing reproducible builds on Flathub (the manifest is
       # pinned to a commit and Cargo.lock is used by `cargo vendor`).
-      - run: cargo generate-lockfile --manifest-path Cargo.toml
-      - run: cargo vendor --locked --versioned-dirs vendor
-      - run: |
-          mkdir -p .cargo
-          cat > .cargo/config.toml <<'EOF'
-          [source.crates-io]
-          replace-with = "vendored-sources"
-          [source.vendored-sources]
-          directory = "vendor"
-          EOF
-      - run: cargo fetch --locked --offline || true
-      - run: cargo build --release --locked --offline
-      - run: install -Dm755 target/release/actioneer /app/bin/actioneer
+      - cargo generate-lockfile --manifest-path Cargo.toml
+      - cargo vendor --locked --versioned-dirs vendor
+      - |-
+        mkdir -p .cargo
+        cat > .cargo/config.toml <<'EOF'
+        [source.crates-io]
+        replace-with = "vendored-sources"
+        [source.vendored-sources]
+        directory = "vendor"
+        EOF
+      - cargo fetch --locked --offline || true
+      - cargo build --release --locked --offline
+      - install -Dm755 target/release/actioneer /app/bin/actioneer
       # Install desktop file, D-Bus service, and AppStream metadata so Flatpak/desktop environments discover the app
       - install -Dm644 data/me.spaceinbox.actioneer.desktop /app/share/applications/me.spaceinbox.actioneer.desktop
       - install -Dm644 data/me.spaceinbox.actioneer.service /app/share/dbus-1/services/me.spaceinbox.actioneer.service
