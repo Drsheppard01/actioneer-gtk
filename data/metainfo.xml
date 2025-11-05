@@ -46,16 +46,16 @@
   <screenshots>
     <!-- Referencing screenshots added under data/screenshots/ -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/1.png</image>
+      <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/1.png</image>
     </screenshot>
     <screenshot type="detail">
-      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/2.png</image>
+      <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/2.png</image>
     </screenshot>
     <screenshot type="detail">
-      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/3.png</image>
+      <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/3.png</image>
     </screenshot>
     <screenshot type="detail">
-      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/4.png</image>
+      <image type="source">https://raw.githubusercontent.com/makoni/actioneer-gtk/develop/data/screenshots/4.png</image>
     </screenshot>
   </screenshots>
 
