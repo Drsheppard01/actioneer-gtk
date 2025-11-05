@@ -44,6 +44,13 @@ jobs:
           cargo generate-lockfile
           cargo vendor --locked --versioned-dirs vendor
 
+      - name: Ensure AppStream CLI runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --noninteractive flathub org.flatpak.Builder
+
       - name: Validate AppStream metadata
         shell: bash
         run: |
