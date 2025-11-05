@@ -56,6 +56,9 @@ jobs:
           rm -rf flatpak/source
           mkdir -p flatpak/source
           git ls-files -z | tar --null -T - -cf - | tar -xf - -C flatpak/source
+          if [ -f Cargo.lock ]; then
+            cp Cargo.lock flatpak/source/Cargo.lock
+          fi
 
       - name: Ensure AppStream CLI runtime
         shell: bash
