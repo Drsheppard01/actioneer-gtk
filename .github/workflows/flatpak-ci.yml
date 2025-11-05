@@ -40,9 +40,17 @@ jobs:
       - name: Vendor Rust dependencies
         shell: bash
         run: |
-          rm -rf vendor
+          rm -rf flatpak/vendor
           cargo generate-lockfile
-          cargo vendor --locked --versioned-dirs vendor
+          cargo vendor --locked --versioned-dirs flatpak/vendor
+
+      - name: Stage Flatpak source directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf flatpak/source
+          mkdir -p flatpak/source
+          git ls-files -z | tar --null -T - -cf - | tar -xf - -C flatpak/source
 
       - name: Ensure AppStream CLI runtime
         shell: bash
