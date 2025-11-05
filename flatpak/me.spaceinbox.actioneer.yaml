@@ -19,8 +19,9 @@ command: actioneer
 finish-args:
   # Keep permissions minimal; expand only as needed during testing.
   - --share=network
+  - --share=ipc
   - --socket=wayland
-  - --socket=x11
+  - --socket=fallback-x11
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.secrets
   - --device=dri
@@ -65,9 +66,13 @@ modules:
       # For Flathub submission the source should be a pinned git checkout
       # instead of a local dir. We pin to the current commit; update this
       # to a release tag if you prefer to track a tag instead.
-      - type: git
-        url: https://github.com/makoni/Actioneer-gtk.git
-        commit: 4eb30f5eb9c16799b7968ae6d7811abbc82b09ba
+      - type: dir
+        path: source
+      # Use the locally vendored crates when running the before-submission
+      # checks so the sandbox build does not require network access.
+      - type: dir
+        path: vendor
+        dest: vendor
 
 # Notes:
 # - This is a starter manifest for local development and testing. For Flathub submission you should

@@ -34,7 +34,9 @@ impl GtkTestGuard {
             return None;
         }
 
-        if !gtk::is_initialized() && let Err(err) = gtk::init() {
+        if !gtk::is_initialized()
+            && let Err(err) = gtk::init()
+        {
             eprintln!("Skipping {test_name}: failed to init GTK ({err})");
             drop(guard);
             return None;

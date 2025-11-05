@@ -33,25 +33,33 @@
   <developer_name>Sergey Armodin</developer_name>
 
   <!-- Content rating and categories -->
-  <content_rating type="pegi">
-    <rating>0</rating>
-  </content_rating>
+  <content_rating type="oars-1.1" />
   <categories>
     <category>Development</category>
-    <category>Utilities</category>
+    <category>Utility</category>
   </categories>
+
+  <launchable type="desktop-id">me.spaceinbox.actioneer.desktop</launchable>
 
   <!-- Icons and screenshots: include icon names that match files in the icons/ directory.
        Add screenshot entries when screenshots are available in data/screenshots/ or icons/preview. -->
   <screenshots>
     <!-- Referencing screenshots added under data/screenshots/ -->
-    <screenshot type="default">screenshots/1.png</screenshot>
-    <screenshot type="detail">screenshots/2.png</screenshot>
-    <screenshot type="detail">screenshots/3.png</screenshot>
-    <screenshot type="detail">screenshots/4.png</screenshot>
+    <screenshot type="default">
+      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/1.png</image>
+    </screenshot>
+    <screenshot type="detail">
+      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/2.png</image>
+    </screenshot>
+    <screenshot type="detail">
+      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/3.png</image>
+    </screenshot>
+    <screenshot type="detail">
+      <image type="source">https://raw.githubusercontent.com/makoni/Actioneer-gtk/develop/data/screenshots/4.png</image>
+    </screenshot>
   </screenshots>
 
-  <release>
-    <version>1.0.0</version>
-  </release>
+  <releases>
+    <release version="1.0.0" date="2025-11-01" />
+  </releases>
 </component>

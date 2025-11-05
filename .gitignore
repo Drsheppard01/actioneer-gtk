@@ -34,6 +34,7 @@ macOS/
 /builddir/
 # flatpak-builder runtime state and rofiles
 /.flatpak-builder/
+flatpak/source
 
 # App export and metadata produced by flatpak-builder
 /metadata
