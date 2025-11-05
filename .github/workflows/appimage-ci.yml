@@ -56,6 +56,8 @@ jobs:
           install -Dm644 LICENSE "$APPDIR/usr/share/licenses/actioneer/LICENSE"
           mkdir -p "$APPDIR/usr/share/icons"
           cp -a icons/icons/hicolor "$APPDIR/usr/share/icons/hicolor"
+          install -Dm644 data/me.spaceinbox.actioneer.desktop "$APPDIR/me.spaceinbox.actioneer.desktop"
+          install -Dm644 icons/icons/hicolor/512x512/apps/me.spaceinbox.actioneer.png "$APPDIR/me.spaceinbox.actioneer.png"
           printf '#!/bin/sh\nHERE="$(dirname "$0")"\nexec "$HERE/usr/bin/actioneer" "$@"\n' > "$APPDIR/AppRun"
           chmod +x "$APPDIR/AppRun"
 
