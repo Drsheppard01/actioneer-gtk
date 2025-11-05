@@ -86,10 +86,7 @@ jobs:
 
             # 3. Configure linker for cross-compilation
             mkdir -p .cargo
-            cat >> .cargo/config.toml << 'TOML_EOF'
-            [target.aarch64-unknown-linux-gnu]
-            linker = "gcc"
-            TOML_EOF
+            printf '[target.aarch64-unknown-linux-gnu]\nlinker = "gcc"\n' > .cargo/config.toml
 
             # 4. Build release binary
             cargo build --workspace --release --target aarch64-unknown-linux-gnu
@@ -147,7 +144,7 @@ jobs:
       - name: Upload RPM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rpm-${{ matrix.arch }}
+          name: actioneer-${{ matrix.arch }}.rpm
           path: dist/actioneer-${{ matrix.arch }}.rpm
           compression-level: 0
 
