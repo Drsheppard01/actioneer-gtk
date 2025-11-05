@@ -61,11 +61,12 @@ jobs:
 
       - name: Build and package for arm64 in container
         if: matrix.arch == 'arm64'
-                run: |
-                  docker run --rm --platform linux/arm64 --volume "./:/app" --workdir "/app" ubuntu:24.04 /bin/bash -c '
-                    set -e
-                    
-                    # 1. Install dependencies inside container            export DEBIAN_FRONTEND=noninteractive
+        run: |
+          docker run --rm --platform linux/arm64 --volume "./:/app" --workdir "/app" ubuntu:24.04 /bin/bash -c '
+            set -e
+            
+            # 1. Install dependencies inside container
+            export DEBIAN_FRONTEND=noninteractive
             apt-get update
             apt-get install -y \
               build-essential \
