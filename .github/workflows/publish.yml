@@ -19,7 +19,7 @@ jobs:
     secrets: inherit
 
   snap:
-    uses: ./.github/workflows/snap-publish.yml
+    uses: ./.github/workflows/snap-ci.yml
     secrets: inherit
 
   appimage:
