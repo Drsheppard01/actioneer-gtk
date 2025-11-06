@@ -11,7 +11,7 @@ jobs:
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.0.0
       - name: Install system packages (GTK4 & libadwaita)
         run: |
           sudo apt-get update
@@ -45,7 +45,7 @@ jobs:
       matrix:
         toolchain: [stable]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.0.0
       - name: Install system packages (GTK4 & libadwaita)
         run: |
           sudo apt-get update
@@ -86,7 +86,7 @@ jobs:
     needs: build-test
     if: ${{ github.event_name != 'pull_request' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.0.0
       - name: Install system packages (GUI deps)
         run: |
           sudo apt-get update
@@ -121,7 +121,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     needs: build-test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.0.0
       - name: Install system packages
         run: |
           sudo apt-get update
