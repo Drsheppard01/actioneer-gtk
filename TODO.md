@@ -34,6 +34,7 @@ Notes
 ---
 
 -Recent Updates
+- [✅] 2025-11-06 — Swapped the Flatpak vendoring tarball for a `flatpak-cargo-generator` JSON manifest and pointed the manifest at it so the build stays offline-compliant for Flathub.
 - [✅] 2025-11-05 — Finished the Flathub “Before submission” checklist locally: rebuilt the vendored Flatpak, fixed screenshot hosting to use the public develop branch, and cleared the repo linter (only optional caption warnings remain).
 - [✅] 2025-11-04 — Replaced the arm64 apt source rewrite with explicit archive/ports lists and pinned the GNOME extension channel to edge so Snap CI stops failing (`.github/workflows/snap-ci.yml`).
 - [🔄] 2025-11-04 — Reworked the single-runner Snap CI to install arm64 multi-arch GTK/libadwaita toolchains directly on ubuntu-latest and switched cargo builds away from `cross` so Snapcraft can target both amd64/arm64 with `--build-for`.
