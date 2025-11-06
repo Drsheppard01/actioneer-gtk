@@ -108,7 +108,7 @@ See `docs/` for API, caching, and UI guidelines. The project enforces zero warni
 
 ## Packaging Notes
 
-- **Flatpak**: The manifest lives in `flatpak/me.spaceinbox.actioneer.yaml`. Local builds should vendored dependencies via `flatpak/vendor` and pass AppStream validation before submission to Flathub.
+- **Flatpak**: The manifest lives in `flatpak/me.spaceinbox.actioneer.yaml`. Local builds should vendor dependencies via `flatpak/vendor`, pass AppStream validation before submission, and can be run with `scripts/flathub-build.sh --install flatpak/me.spaceinbox.actioneer.yaml` when `rofiles-fuse` is unavailable (for example in virtualised hosts).
 - **Snap**: `snap/snapcraft.yaml` builds a strictly confined snap using the GNOME extension. Test locally with `snapcraft pack` or push to the Snap Store once the snap is registered.
 
 ## Architecture Overview

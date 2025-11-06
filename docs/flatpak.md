@@ -86,7 +86,7 @@ flatpak remote-info flathub org.gnome.Sdk
    - Ensure the workflow publishes build artifacts (bundle or repo) as needed for manual testing.
 
 6. Local testing
-   - Add Flathub remote if not present:
+  - Add Flathub remote if not present:
 
      ```bash
      flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -98,7 +98,13 @@ flatpak remote-info flathub org.gnome.Sdk
      flatpak-builder --force-clean --install --user build-dir flatpak/me.spaceinbox.actioneer.yaml
      ```
 
-   - Run the installed app:
+     On systems where `rofiles-fuse` is unavailable (common in virtualised hosts), use the helper script which forwards all arguments to `flathub-build` while adding `--disable-rofiles-fuse`:
+
+     ```bash
+     scripts/flathub-build.sh --install flatpak/me.spaceinbox.actioneer.yaml
+     ```
+
+  - Run the installed app:
 
      ```bash
      flatpak run me.spaceinbox.actioneer
