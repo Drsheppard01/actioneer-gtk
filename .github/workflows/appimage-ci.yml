@@ -61,6 +61,18 @@ jobs:
           printf '#!/bin/sh\nHERE="$(dirname "$0")"\nexec "$HERE/usr/bin/actioneer" "$@"\n' > "$APPDIR/AppRun"
           chmod +x "$APPDIR/AppRun"
 
+      - name: Get app version
+        id: get_version
+        shell: bash
+        run: |
+          # Extract the version from the [package] section of Cargo.toml
+          version=$(awk -F '"' '/^\[package\]/{p=1} p && /^version/ {print $2; exit}' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "Could not determine version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Build AppImage
         run: |
           set -euo pipefail
@@ -69,14 +81,13 @@ jobs:
           export APPIMAGE_EXTRACT_AND_RUN=1
           export ARCH=${{ matrix.arch }}
           mkdir -p dist
-          ./appimagetool.AppImage "$APPDIR" "dist/Actioneer-${{ matrix.arch }}.AppImage"
+          ./appimagetool.AppImage "$APPDIR" "dist/actioneer-${{ steps.get_version.outputs.version }}-${{ matrix.arch }}.AppImage"
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: appimage-${{ matrix.arch }}
-          path: dist/Actioneer-${{ matrix.arch }}.AppImage
-          compression-level: 0
+          name: actioneer-${{ steps.get_version.outputs.version }}-${{ matrix.arch }}.AppImage
+          path: dist/actioneer-${{ steps.get_version.outputs.version }}-${{ matrix.arch }}.AppImage
 
       - name: Expose workflow run id
         id: expose-run-id
