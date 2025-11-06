@@ -8,6 +8,9 @@ on:
         description: GitHub run id that produced the Flatpak artifacts
         value: ${{ jobs.build.outputs.run-id }}
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
     name: Build Flatpak (CI)

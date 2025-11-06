@@ -9,6 +9,9 @@ name: Snap CI
         description: GitHub run id that produced the Snap artifacts
         value: ${{ jobs.build.outputs.run-id }}
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
     name: Build snap (${{ matrix.platform }})
@@ -30,7 +33,7 @@ jobs:
           snapcraft-args: --build-for=${{ matrix.platform }}
 
       - name: Upload snap artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.build.outputs.snap }}
           path: ${{ steps.build.outputs.snap }}

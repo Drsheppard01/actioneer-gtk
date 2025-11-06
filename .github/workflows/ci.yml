@@ -46,15 +46,17 @@ jobs:
         toolchain: [stable]
     steps:
       - uses: actions/checkout@v5.0.0
+
       - name: Install system packages (GTK4 & libadwaita)
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libglib2.0-dev pkg-config build-essential
+      
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ matrix.toolchain }}
-          profile: minimal
+      
       - name: Cache cargo (target + registry)
         uses: actions/cache@v4
         with:
@@ -65,20 +67,15 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
+      
       - name: Cargo build (debug)
         run: cargo build --workspace --all-targets --verbose
+      
       - name: Cargo test (unit)
         run: cargo test --workspace --verbose
+      
       - name: Cargo build (release)
         run: cargo build --workspace --release --verbose
-      # Upload build artifacts (commented out for now, enable later)
-      # - name: Upload build artifacts
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: actioneer-binaries
-      #     path: |
-      #       target/release/actioneer
-      #       target/debug/actioneer
 
   ui-integration:
     name: UI / integration tests
@@ -92,10 +89,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libglib2.0-dev pkg-config xvfb libx11-dev
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          profile: minimal
+          
       - name: Cache cargo (target + registry)
         uses: actions/cache@v4
         with:
@@ -114,27 +111,3 @@ jobs:
           sudo Xvfb :99 -screen 0 1920x1080x24 &
           sleep 2
           RUST_TEST_THREADS=1 cargo test -- --ignored --test-threads=1
-
-  release-artifact:
-    name: Build Release artifact
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
-    needs: build-test
-    steps:
-      - uses: actions/checkout@v5.0.0
-      - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libglib2.0-dev pkg-config build-essential
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Cargo build release
-        run: cargo build --workspace --release --verbose
-      # Upload release artifact (commented out for now)
-      # - name: Upload release artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: actioneer-release
-      #     path: target/release/actioneer
