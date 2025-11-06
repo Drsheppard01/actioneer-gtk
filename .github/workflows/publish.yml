@@ -82,11 +82,10 @@ jobs:
 
       - name: Draft GitHub release
         uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.release_vars.outputs.tag }}
           name: ${{ steps.release_vars.outputs.name }}
           body: ${{ steps.release_vars.outputs.notes }}
           draft: true
           files: release-assets/*
+          token: ${{ secrets.GITHUB_TOKEN }}
