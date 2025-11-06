@@ -1,6 +1,5 @@
 # Rust
 /target/
-Cargo.lock
 # Do not commit the vendored crates directory; we vendor at build-time in the
 # Flatpak manifest instead. This keeps the git history small.
 vendor/

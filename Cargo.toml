@@ -25,9 +25,6 @@ serde_json = "1.0"
 # Secret storage
 keyring = { version = "3.6", default-features = false, features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
-# DBus and portals
-zbus = "5.12"
-
 # Open URLs
 open = "5.3"
 

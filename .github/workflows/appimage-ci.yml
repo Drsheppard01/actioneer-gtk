@@ -53,7 +53,6 @@ jobs:
           mkdir -p "$APPDIR/usr/bin"
           install -Dm755 target/release/actioneer "$APPDIR/usr/bin/actioneer"
           install -Dm644 data/me.spaceinbox.actioneer.desktop "$APPDIR/usr/share/applications/me.spaceinbox.actioneer.desktop"
-          install -Dm644 data/me.spaceinbox.actioneer.service "$APPDIR/usr/share/dbus-1/services/me.spaceinbox.actioneer.service"
           install -Dm644 data/metainfo.xml "$APPDIR/usr/share/metainfo/me.spaceinbox.actioneer.metainfo.xml"
           install -Dm644 LICENSE "$APPDIR/usr/share/licenses/actioneer/LICENSE"
           mkdir -p "$APPDIR/usr/share/icons"

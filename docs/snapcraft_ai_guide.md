@@ -19,7 +19,7 @@ This note distills the Snapcraft documentation fetched during the investigation 
 4. **Part configuration** — the `rust` plugin plus `source: .` assumes the workspace has `Cargo.toml` at the root. Do not move the manifest.
 5. **Override build hook** — `craftctl default` runs the stock Rust build (`cargo install ...`). Extra installs copy desktop and icon assets into `meta/gui`.
 6. **Stage packages** — libadwaita/libgtk/libssl ship runtime GTK stack. Use `stage-packages` for runtime libraries, `build-packages` for headers + pkgconfig.
-7. **Slots/plugs** — the DBus session slot exposes `me.spaceinbox.actioneer`; keep it aligned with the desktop file `DBusActivatable` entry.
+7. **Slots/plugs** — the snap no longer exposes a custom D-Bus name. Avoid re-adding one unless you also ship a matching service implementation.
 
 ## Local build flow (native snapcraft)
 1. `snapcraft clean actioneer --destructive-mode` to wipe `parts/`, `prime/`, and related directories when dependencies or layout change.
