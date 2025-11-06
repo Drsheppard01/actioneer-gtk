@@ -57,7 +57,7 @@ modules:
       # submitting to Flathub, pin this to a release tag or commit.
       - type: git
         url: https://github.com/makoni/Actioneer-gtk.git
-        branch: develop
+        tag: 1.0.0
       # flatpak-cargo-generator -d Cargo.lock -o flatpak/me.spaceinbox.actioneer.cargo-sources.json
       - me.spaceinbox.actioneer.cargo-sources.json
 
