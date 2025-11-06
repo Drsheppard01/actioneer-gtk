@@ -22,7 +22,6 @@ finish-args:
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11
-  - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.secrets
   - --device=dri
   # If you need persistent access to files during development, add e.g.:
