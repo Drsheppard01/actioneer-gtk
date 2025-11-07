@@ -1,3 +1,4 @@
+use crate::APP_ICON_NAME;
 use anyhow::anyhow;
 use gtk4::prelude::ApplicationExt;
 use gtk4::{gio, glib};
@@ -5,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
-const DEFAULT_ICON_NAME: &str = "actioneer";
+const DEFAULT_ICON_NAME: &str = APP_ICON_NAME;
 
 /// Notification manager for Linux using XDG Desktop Notifications
 /// Similar to NotificationManager.swift in macOS version

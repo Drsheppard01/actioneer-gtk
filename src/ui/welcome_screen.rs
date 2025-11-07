@@ -1,3 +1,4 @@
+use crate::APP_ICON_NAME;
 use gtk4 as gtk;
 use gtk4::prelude::*;
 
@@ -21,7 +22,7 @@ impl WelcomeScreen {
         icon_box.set_halign(gtk::Align::Center);
         icon_box.set_margin_bottom(24);
 
-        let icon = gtk::Image::from_icon_name("actioneer");
+        let icon = gtk::Image::from_icon_name(APP_ICON_NAME);
         icon.set_pixel_size(128);
         icon_box.append(&icon);
         widget.append(&icon_box);
