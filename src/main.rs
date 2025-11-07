@@ -101,12 +101,12 @@ fn register_icon_theme_paths() {
     }
 
     // Ensure installed packages (Flatpak/AppImage) can find their bundled icon assets.
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(prefix) = exe_path.parent().and_then(|path| path.parent()) {
-            let share_icons = prefix.join("share/icons");
-            if share_icons.exists() {
-                theme.add_search_path(&share_icons);
-            }
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(prefix) = exe_path.parent().and_then(|path| path.parent())
+    {
+        let share_icons = prefix.join("share/icons");
+        if share_icons.exists() {
+            theme.add_search_path(&share_icons);
         }
     }
 }
