@@ -2,6 +2,8 @@
 
 Actioneer is a native GNOME desktop client for GitHub Actions. It combines a GTK4/libadwaita interface with a Tokio-powered API client so you can browse repositories, inspect workflow runs, watch job logs, and receive notifications without leaving your desktop.
 
+<a href="https://snapcraft.io/actioneer"><img alt="Get it from the Snap Store" src="https://snapcraft.io/en/dark/install.svg" /></a> <a href="https://flathub.org/api/badge?locale=en"><img height="56" alt="Get it on Flathub" src="https://flathub.org/api/badge?locale=en"/></a>
+
 ## Feature Highlights
 - GitHub sign-in via OAuth device flow with tokens stored securely in the system keyring
 - Repository browser with live search, favorites, caching, and adaptive layout
