@@ -34,6 +34,7 @@ Notes
 ---
 
 -Recent Updates
+- [✅] 2025-11-13 — Restored the Snap session D-Bus slot for `me.spaceinbox.actioneer`, staged icons into the runtime/icon metadata, and reran `cargo fmt`/`cargo check` locally.
 - [✅] 2025-11-06 — Cleaned residual D-Bus activation artifacts across packaging configs after dropping the snap slot.
 - [✅] 2025-11-06 — Removed the unused Snap D-Bus slot to unblock store auto-review and reran the packaging tests.
 - [✅] 2025-11-06 — Regenerated the Flatpak cargo sources after dropping the direct zbus dependency and reran the Rust test suites.
