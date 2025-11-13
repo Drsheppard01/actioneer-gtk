@@ -34,6 +34,7 @@ Notes
 ---
 
 -Recent Updates
+- [🔄] 2025-11-13 — Investigating Snap icon regression; pointing the desktop file icon to `/snap/actioneer/current/meta/gui/me.spaceinbox.actioneer.svg` to stop GNOME from ignoring the theme lookup.
 - [✅] 2025-11-13 — Added an env-gated secret portal detector so we can validate the GNOME 49 portal without shipping it yet; remains off until the snap plug is auto-connected.
 - [✅] 2025-11-13 — Confirmed `org.freedesktop.portal.Secret` is live on GNOME 49 by wiring a `secret-test` helper that pipes secrets back from the portal without additional deps.
 - [🔄] 2025-11-13 — Snap: letting the GNOME extension supply GTK/libadwaita again and adding the password-manager-service plug so keyring access works under confinement.
