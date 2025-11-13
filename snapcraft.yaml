@@ -38,6 +38,7 @@ apps:
       - wayland
       - x11
       - pulseaudio
+      - password-manager-service
 
 parts:
   actioneer:
@@ -55,8 +56,6 @@ parts:
         - libgtk-4-dev
         - libssl-dev
     stage-packages:
-      - libadwaita-1-0
-      - libgtk-4-1
       - libssl3
     override-build: |
       craftctl default
