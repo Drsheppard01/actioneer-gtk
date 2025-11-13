@@ -34,6 +34,8 @@ Notes
 ---
 
 -Recent Updates
+- [✅] 2025-11-13 — Added an env-gated secret portal detector so we can validate the GNOME 49 portal without shipping it yet; remains off until the snap plug is auto-connected.
+- [✅] 2025-11-13 — Confirmed `org.freedesktop.portal.Secret` is live on GNOME 49 by wiring a `secret-test` helper that pipes secrets back from the portal without additional deps.
 - [🔄] 2025-11-13 — Snap: letting the GNOME extension supply GTK/libadwaita again and adding the password-manager-service plug so keyring access works under confinement.
 - [✅] 2025-11-13 — Researched XDG portal docs for an Activation interface; none exists yet, so we’ll keep the NON_UNIQUE multi-instance approach and leave Snap auto-review satisfied without extra glue.
 - [✅] 2025-11-13 — Disabled GApplication D-Bus ownership with `NON_UNIQUE`, kept the new snap icon metadata, and verified `cargo fmt`/`cargo check` so the Snap avoids manual review yet still launches cleanly.

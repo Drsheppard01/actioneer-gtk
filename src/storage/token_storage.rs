@@ -1,3 +1,4 @@
+use super::secret_portal;
 use keyring::Entry;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -28,6 +29,22 @@ impl TokenStorage {
             SERVICE_NAME, TOKEN_KEY
         );
         let entry = Entry::new(SERVICE_NAME, TOKEN_KEY)?;
+
+        if secret_portal::detection_enabled() {
+            match secret_portal::secret_portal_available() {
+                Ok(true) => info!(
+                    "Secret portal detected, but support remains disabled pending snap auto-connect"
+                ),
+                Ok(false) => {
+                    warn!("Secret portal detection requested, but the interface was not advertised")
+                }
+                Err(err) => warn!("Secret portal detection failed: {err}"),
+            }
+        } else {
+            debug!(
+                "Secret portal detection disabled (set ACTIONEER_ENABLE_SECRET_PORTAL=1 to probe)"
+            );
+        }
 
         // Check if there's an existing token first - don't disturb it!
         let has_existing_token = match entry.get_password() {
