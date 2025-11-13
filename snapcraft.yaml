@@ -38,8 +38,6 @@ apps:
       - wayland
       - x11
       - pulseaudio
-    slots:
-      - session-dbus-actioneer
 
 parts:
   actioneer:
@@ -74,9 +72,4 @@ parts:
       - -usr/lib/x86_64-linux-gnu/libicutest.so.*
       - -usr/lib/x86_64-linux-gnu/libicuio.so.*
 
-slots:
-  session-dbus-actioneer:
-    interface: dbus
-    bus: session
-    name: me.spaceinbox.actioneer
 

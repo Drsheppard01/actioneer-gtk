@@ -9,6 +9,7 @@ mod preferences;
 mod storage;
 mod ui;
 
+use gio::ApplicationFlags;
 use gtk4::prelude::*;
 use gtk4::{IconTheme, gdk};
 use libadwaita as adw;
@@ -68,7 +69,10 @@ fn main() -> anyhow::Result<()> {
     info!("Tokio runtime initialized");
 
     // Create GTK application
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    let app = adw::Application::builder()
+        .application_id(APP_ID)
+        .flags(ApplicationFlags::NON_UNIQUE)
+        .build();
 
     app.connect_startup(|_| {
         register_icon_theme_paths();
